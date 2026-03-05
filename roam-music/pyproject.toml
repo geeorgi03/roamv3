@@ -1,0 +1,11 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "roam-music"
+version = "0.1.0"
+description = "Roam Music service"
+readme = "README.md"
+requires-python = ">=3.11"
+dependencies = []
