@@ -1,64 +1,84 @@
-from __future__ import annotations
-
-from datetime import datetime
+import logging
+from datetime import datetime, timezone
 from typing import Any
 
 
+def _utc_now_iso() -> str:
+    return datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
+
+
 def write_success(supabase_client: Any, job: dict, result: dict) -> None:
+    """Update music_tracks with analysis results and mark analysis_jobs complete."""
     try:
-        (
-            supabase_client.table("music_tracks")
-            .update(
-                {
-                    "bpm": result["bpm"],
-                    "beat_grid": result["beat_grid"],
-                    "sections": result["sections"],
-                    "analysis_status": "complete",
-                }
-            )
-            .eq("id", job["music_track_id"])
-            .execute()
-        )
-        (
-            supabase_client.table("analysis_jobs")
-            .update({"status": "complete", "completed_at": datetime.utcnow().isoformat() + "Z"})
-            .eq("id", job["id"])
-            .execute()
-        )
-    except Exception as e:
-        print(f"write_success: error: {e}")
+        music_track_id = job.get("music_track_id")
+        job_id = job.get("id")
+        if not music_track_id or not job_id:
+            logging.warning("write_success: missing music_track_id or job id")
+            return
+
+        supabase_client.table("music_tracks").update(
+            {
+                "bpm": result.get("bpm"),
+                "beat_grid": result.get("beat_grid"),
+                "sections": result.get("sections"),
+                "analysis_status": "complete",
+            }
+        ).eq("id", music_track_id).execute()
+
+        supabase_client.table("analysis_jobs").update(
+            {
+                "status": "complete",
+                "completed_at": _utc_now_iso(),
+            }
+        ).eq("id", job_id).execute()
+    except Exception:
+        logging.exception("write_success failed")
 
 
 def write_failure(supabase_client: Any, job: dict, error: Exception) -> None:
+    """Mark music_tracks and analysis_jobs as failed with error message."""
     try:
-        (
-            supabase_client.table("music_tracks")
-            .update({"analysis_status": "failed"})
-            .eq("id", job["music_track_id"])
-            .execute()
-        )
-        (
-            supabase_client.table("analysis_jobs")
-            .update({"status": "failed", "error_message": str(error)[:2000]})
-            .eq("id", job["id"])
-            .execute()
-        )
-    except Exception as e:
-        print(f"write_failure: error: {e}")
+        music_track_id = job.get("music_track_id")
+        job_id = job.get("id")
+        if not job_id:
+            logging.warning("write_failure: missing job id")
+            return
+
+        err_str = str(error)[:2000]
+
+        supabase_client.table("analysis_jobs").update(
+            {
+                "status": "failed",
+                "error": err_str,
+            }
+        ).eq("id", job_id).execute()
+
+        if music_track_id is not None:
+            supabase_client.table("music_tracks").update(
+                {"analysis_status": "failed"}
+            ).eq("id", music_track_id).execute()
+    except Exception:
+        logging.exception("write_failure failed")
 
 
 def write_timeout_requeue(supabase_client: Any, job: dict) -> None:
+    """Requeue job if attempt_count < 2, else mark as failed."""
     try:
-        attempt_count = int(job.get("attempt_count") or 0)
-        if attempt_count < 2:
-            (
-                supabase_client.table("analysis_jobs")
-                .update({"status": "pending", "attempt_count": attempt_count + 1})
-                .eq("id", job["id"])
-                .execute()
-            )
-        else:
-            write_failure(supabase_client, job, Exception("Timeout: max retries exceeded"))
-    except Exception as e:
-        print(f"write_timeout_requeue: error: {e}")
+        job_id = job.get("id")
+        attempt_count = job.get("attempt_count", 0) or 0
 
+        if attempt_count < 2:
+            supabase_client.table("analysis_jobs").update(
+                {
+                    "status": "pending",
+                    "attempt_count": attempt_count + 1,
+                }
+            ).eq("id", job_id).execute()
+        else:
+            write_failure(
+                supabase_client,
+                job,
+                Exception("Job timeout exceeded; max retries exceeded"),
+            )
+    except Exception:
+        logging.exception("write_timeout_requeue failed")

@@ -68,6 +68,28 @@ CREATE TABLE analysis_jobs (
   error text
 );
 
+-- 7. claim_analysis_job RPC: atomically claim a single pending job
+create or replace function claim_analysis_job()
+returns setof analysis_jobs
+language sql
+as $$
+  update analysis_jobs
+  set
+    status = 'processing',
+    attempt_count = attempt_count + 1,
+    claimed_at = now(),
+    lease_expires_at = now() + interval '60 seconds'
+  where id = (
+    select id
+    from analysis_jobs
+    where status = 'pending'
+    order by created_at
+    for update skip locked
+    limit 1
+  )
+  returning *;
+$$;
+
 -- 6. share_tokens — FK to sessions
 CREATE TABLE share_tokens (
   id uuid PRIMARY KEY DEFAULT gen_random_uuid(),

@@ -1,12 +1,15 @@
 from __future__ import annotations
 
+import logging
 import os
 from typing import Any
 
 import httpx
 
 
-def _get_supabase_rest_credentials(supabase_client: Any) -> tuple[str | None, str | None]:
+def _get_supabase_rest_credentials(
+    supabase_client: Any,
+) -> tuple[str | None, str | None]:
     url = getattr(supabase_client, "supabase_url", None) or os.environ.get("SUPABASE_URL")
     key = getattr(supabase_client, "supabase_key", None) or os.environ.get("SUPABASE_SERVICE_ROLE_KEY")
     return url, key
@@ -16,7 +19,8 @@ def claim_job(supabase_client: Any) -> dict | None:
     """
     Claim a single pending analysis job atomically via PostgREST RPC.
 
-    Returns the claimed job row dict, or None if no job available / on error.
+    Returns the claimed job row dict, or None if no job is available.
+    Any operational errors (including missing RPC) are logged.
     """
     url, key = _get_supabase_rest_credentials(supabase_client)
     if not url or not key:
@@ -38,6 +42,11 @@ def claim_job(supabase_client: Any) -> dict | None:
             )
 
         if resp.status_code == 404:
+            logging.error(
+                "claim_analysis_job RPC endpoint returned 404. "
+                "Ensure the claim_analysis_job Postgres function exists and is "
+                "exposed via PostgREST."
+            )
             return None
         resp.raise_for_status()
 
@@ -47,6 +56,6 @@ def claim_job(supabase_client: Any) -> dict | None:
         if isinstance(data, dict):
             return data
         return None
-    except Exception as e:
-        print(f"claim_job: error claiming job: {e}")
+    except Exception as exc:
+        logging.exception("Failed to claim analysis job via RPC: %s", exc)
         return None

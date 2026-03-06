@@ -36,7 +36,7 @@ def analyze(supabase_client: Any, storage_path: str, timeout_at: str) -> dict:
 
     tmp_path: str | None = None
     try:
-        audio_bytes = supabase_client.storage.from_("music-tracks").download(storage_path)
+        audio_bytes = supabase_client.storage.from_("audio").download(storage_path)
         _raise_if_timed_out(timeout_at_dt)
 
         with tempfile.NamedTemporaryFile(delete=False, suffix=ext) as f:

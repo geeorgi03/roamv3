@@ -1,7 +1,7 @@
 import NetInfo from '@react-native-community/netinfo';
 import { getTusUrls, getUploadQueue, setTusUrls, setUploadQueue } from '../lib/storage';
-import { updateClipServerData, updateClipStatus } from '../lib/database';
-import { uploadClipToMux } from '../lib/upload';
+import { updateClipServerData, updateClipStatus as updateClipStatusDb } from '../lib/database';
+import { uploadClipToMux, UploadAbortedError } from '../lib/upload';
 
 const API_BASE = process.env.EXPO_PUBLIC_API_URL ?? 'http://localhost:3001';
 
@@ -10,6 +10,7 @@ export interface QueueItem {
   session_id: string;
   file_uri: string;
   label: string;
+  recorded_at: string;
   token: string;
   clip_id?: string;
   tus_upload_url?: string;
@@ -17,6 +18,47 @@ export interface QueueItem {
   attempt_count: number;
   next_retry_at?: number;
   status: 'queued' | 'uploading' | 'failed';
+}
+
+type UploadQueueStatus =
+  | QueueItem['status']
+  | 'processing';
+
+export interface UploadQueueEvent {
+  local_id: string;
+  status?: UploadQueueStatus;
+  progress?: number;
+}
+
+type UploadQueueListener = (event: UploadQueueEvent) => void;
+
+const uploadQueueListeners = new Set<UploadQueueListener>();
+
+export function addUploadQueueListener(listener: UploadQueueListener): () => void {
+  uploadQueueListeners.add(listener);
+  return () => {
+    uploadQueueListeners.delete(listener);
+  };
+}
+
+function emitUploadQueueEvent(event: UploadQueueEvent) {
+  if (!event.local_id) return;
+  uploadQueueListeners.forEach((listener) => {
+    try {
+      listener(event);
+    } catch {
+      // ignore listener errors
+    }
+  });
+}
+
+function updateClipStatusWithEvent(local_id: string, status: UploadQueueStatus, progress?: number) {
+  updateClipStatusDb(local_id, status, progress);
+  const event: UploadQueueEvent = { local_id, status };
+  if (typeof progress === 'number') {
+    event.progress = progress;
+  }
+  emitUploadQueueEvent(event);
 }
 
 export class UploadQueueService {
@@ -40,7 +82,7 @@ export class UploadQueueService {
     });
     if (interrupted.length > 0) {
       setUploadQueue(this._queue);
-      interrupted.forEach((local_id) => updateClipStatus(local_id, 'queued'));
+      interrupted.forEach((local_id) => updateClipStatusWithEvent(local_id, 'queued'));
     }
 
     NetInfo.addEventListener((state) => {
@@ -55,7 +97,7 @@ export class UploadQueueService {
     const next: QueueItem = { ...item, attempt_count: 0, status: 'queued' };
     this._queue.push(next);
     setUploadQueue(this._queue);
-    updateClipStatus(item.local_id, 'queued');
+    updateClipStatusWithEvent(item.local_id, 'queued');
     this.processQueue();
   }
 
@@ -71,7 +113,7 @@ export class UploadQueueService {
       next_retry_at: undefined,
     };
     setUploadQueue(this._queue);
-    updateClipStatus(local_id, 'queued');
+    updateClipStatusWithEvent(local_id, 'queued');
     this.processQueue();
   }
 
@@ -128,6 +170,7 @@ export class UploadQueueService {
           body: JSON.stringify({
             session_id: item.session_id,
             local_id: item.local_id,
+            recorded_at: item.recorded_at,
             label: item.label,
           }),
         });
@@ -152,10 +195,10 @@ export class UploadQueueService {
 
       item.status = 'uploading';
       setUploadQueue(this._queue);
-      updateClipStatus(item.local_id, 'uploading', 0);
+      updateClipStatusWithEvent(item.local_id, 'uploading', 0);
 
       const handle = uploadClipToMux(item.tus_upload_url!, item.file_uri, (pct) => {
-        updateClipStatus(item.local_id, 'uploading', pct);
+        updateClipStatusWithEvent(item.local_id, 'uploading', pct);
       });
       this._active.set(item.local_id, { abort: handle.abort });
 
@@ -170,16 +213,31 @@ export class UploadQueueService {
       delete nextUrls[item.local_id];
       setTusUrls(nextUrls);
 
-      updateClipStatus(item.local_id, 'processing');
+      updateClipStatusWithEvent(item.local_id, 'processing');
       this.processQueue();
-    } catch {
+    } catch (error) {
       this._active.delete(item.local_id);
 
       const currentIdx = this._queue.findIndex((q) => q.local_id === item.local_id);
       if (currentIdx < 0) return;
       const current = this._queue[currentIdx];
 
-      if (current.status !== 'uploading') return;
+      const isAbort =
+        error instanceof UploadAbortedError ||
+        (error &&
+          typeof error === 'object' &&
+          'name' in error &&
+          (error as { name?: string | undefined }).name === 'UploadAbortedError');
+
+      if (isAbort) {
+        if (current.status === 'uploading') {
+          current.status = 'queued';
+          current.next_retry_at = undefined;
+          setUploadQueue(this._queue);
+          updateClipStatusWithEvent(current.local_id, 'queued');
+        }
+        return;
+      }
 
       current.attempt_count += 1;
       if (current.attempt_count < 5) {
@@ -189,12 +247,12 @@ export class UploadQueueService {
         current.next_retry_at = Date.now() + delay;
         current.status = 'queued';
         setUploadQueue(this._queue);
-        updateClipStatus(current.local_id, 'queued');
+        updateClipStatusWithEvent(current.local_id, 'queued');
         this._scheduleRetry(current);
       } else {
         current.status = 'failed';
         setUploadQueue(this._queue);
-        updateClipStatus(current.local_id, 'failed');
+        updateClipStatusWithEvent(current.local_id, 'failed');
       }
     }
   }
@@ -208,7 +266,7 @@ export class UploadQueueService {
       }
       const idx = this._queue.findIndex((q) => q.local_id === local_id);
       if (idx >= 0) this._queue[idx].status = 'queued';
-      updateClipStatus(local_id, 'queued');
+      updateClipStatusWithEvent(local_id, 'queued');
     }
     setUploadQueue(this._queue);
     this._active.clear();

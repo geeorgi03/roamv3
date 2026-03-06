@@ -31,6 +31,7 @@ export async function saveClip(
     session_id: sessionId,
     file_uri: fileUri,
     label: finalLabel,
+    recorded_at,
     token,
   });
 }

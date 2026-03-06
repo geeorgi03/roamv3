@@ -5,7 +5,11 @@ import {
   updateClipFromServer,
   type ClipRow,
 } from '../database';
-import { uploadQueue } from '../../services/uploadQueue';
+import {
+  uploadQueue,
+  addUploadQueueListener,
+  type UploadQueueEvent,
+} from '../../services/uploadQueue';
 
 export function useClips(sessionId: string | null) {
   const [clips, setClips] = useState<ClipRow[]>([]);
@@ -18,13 +22,9 @@ export function useClips(sessionId: string | null) {
     setClips(getClipsForSession(sessionId));
   }, [sessionId]);
 
-  const retryClip = useCallback(
-    (local_id: string) => {
-      uploadQueue.retryClip(local_id);
-      refresh();
-    },
-    [refresh]
-  );
+  const retryClip = useCallback((local_id: string) => {
+    uploadQueue.retryClip(local_id);
+  }, []);
 
   /** Update in-memory clip state for local upload progress/status (so cards show live %) */
   const updateLocalClip = useCallback(
@@ -147,7 +147,24 @@ export function useClips(sessionId: string | null) {
       )
       .subscribe();
 
+    const unsubscribe = addUploadQueueListener((event: UploadQueueEvent) => {
+      setClips((prev) =>
+        prev.map((clip) => {
+          if (clip.local_id !== event.local_id) return clip;
+          return {
+            ...clip,
+            upload_status: event.status ?? clip.upload_status,
+            upload_progress:
+              typeof event.progress === 'number'
+                ? event.progress
+                : clip.upload_progress,
+          };
+        })
+      );
+    });
+
     return () => {
+      unsubscribe();
       mounted = false;
       supabase.removeChannel(channel);
     };

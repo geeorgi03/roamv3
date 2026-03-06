@@ -47,7 +47,26 @@ def main() -> None:
             job_id = job.get("id")
             try:
                 _parse_timeout_at(job["timeout_at"])
-                result = analyze(supabase_client, job["storage_path"], job["timeout_at"])
+
+                music_track_id = job.get("music_track_id")
+                if not music_track_id:
+                    raise KeyError("music_track_id missing on claimed job")
+
+                track_resp = (
+                    supabase_client.table("music_tracks")
+                    .select("storage_path")
+                    .eq("id", music_track_id)
+                    .single()
+                    .execute()
+                )
+                track = getattr(track_resp, "data", None) or {}
+                storage_path = track.get("storage_path")
+                if not storage_path:
+                    raise KeyError(
+                        f"storage_path missing for music_track_id={music_track_id}"
+                    )
+
+                result = analyze(supabase_client, storage_path, job["timeout_at"])
             except TimeoutError:
                 write_timeout_requeue(supabase_client, job)
                 logging.info("job %s: timeout -> requeued/failed", job_id)

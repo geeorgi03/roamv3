@@ -6,6 +6,13 @@ import * as tus from 'tus-js-client';
  * @param fileUri - Expo/React Native file URI (e.g. file:///...)
  * @param onProgress - Optional callback with progress percentage 0-100
  */
+export class UploadAbortedError extends Error {
+  constructor(message = 'Upload aborted') {
+    super(message);
+    this.name = 'UploadAbortedError';
+  }
+}
+
 export function uploadClipToMux(
   uploadUrl: string,
   fileUri: string,
@@ -32,6 +39,10 @@ export function uploadClipToMux(
           }
         },
         onError(error: Error) {
+          if (aborted) {
+            reject(new UploadAbortedError());
+            return;
+          }
           reject(error);
         },
         onSuccess() {
@@ -41,6 +52,7 @@ export function uploadClipToMux(
 
       if (aborted) {
         upload.abort();
+        reject(new UploadAbortedError('Upload aborted before start'));
         return;
       }
       upload.start();
