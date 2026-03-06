@@ -54,8 +54,25 @@ app.post('/upload-url', async (c) => {
   }
 
   const authHeader = `Basic ${Buffer.from(`${tokenId}:${tokenSecret}`).toString('base64')}`;
+
+  const { data: insertedClip, error: insertError } = await supabase
+    .from('clips')
+    .insert({
+      session_id: body.session_id,
+      local_id: body.local_id,
+      label: body.label ?? 'Clip',
+      recorded_at: body.recorded_at,
+      upload_status: 'queued',
+    })
+    .select('*')
+    .single();
+
+  if (insertError) {
+    return c.json({ error: insertError.message }, 500);
+  }
+
   const passthrough = JSON.stringify({
-    clip_id_placeholder: true,
+    clip_id: insertedClip.id,
     local_id: body.local_id,
   });
 
@@ -93,31 +110,11 @@ app.post('/upload-url', async (c) => {
     return c.json({ error: 'Mux response missing url or id' }, 502);
   }
 
-  const { data: insertedClip, error: insertError } = await supabase
-    .from('clips')
-    .insert({
-      session_id: body.session_id,
-      local_id: body.local_id,
-      label: body.label ?? 'Clip',
-      recorded_at: body.recorded_at,
-      mux_upload_id: muxUploadId,
-      upload_status: 'queued',
-      mux_passthrough: { local_id: body.local_id },
-    })
-    .select('*')
-    .single();
-
-  if (insertError) {
-    return c.json({ error: insertError.message }, 500);
-  }
-
   const { error: updateError } = await supabase
     .from('clips')
     .update({
-      mux_passthrough: {
-        clip_id: insertedClip.id,
-        local_id: body.local_id,
-      },
+      mux_upload_id: muxUploadId,
+      mux_passthrough: { clip_id: insertedClip.id, local_id: body.local_id },
     })
     .eq('id', insertedClip.id);
 
