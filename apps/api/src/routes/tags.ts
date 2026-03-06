@@ -35,7 +35,7 @@ app.patch('/:id/tags', async (c) => {
 
   const { data: clipRow, error: fetchError } = await supabase
     .from('clips')
-    .select('id, session_id, sessions!inner(user_id)')
+    .select('id, session_id, move_name, style, energy, difficulty, bpm, notes, sessions!inner(user_id)')
     .eq('id', id)
     .eq('sessions.user_id', userId)
     .single();
@@ -60,16 +60,20 @@ app.patch('/:id/tags', async (c) => {
     return c.json(existing as Clip);
   }
 
-  const { data, error } = await supabase
-    .from('clips')
-    .update(updates)
-    .eq('id', id)
-    .select('*')
-    .single();
-
-  if (error) {
-    return c.json({ error: error.message }, 500);
+  const clipData = clipRow as Record<string, unknown>;
+  const currentTagState: Record<string, unknown> = {};
+  for (const key of ALLOWED_TAG_FIELDS) {
+    currentTagState[key] = clipData[key] ?? null;
   }
+
+  const { data, error } = await supabase.rpc('update_clip_tags_with_history', {
+    p_clip_id: id,
+    p_user_id: userId,
+    p_snapshot: currentTagState,
+    p_updates: updates,
+  });
+
+  if (error) return c.json({ error: error.message }, 500);
   return c.json(data as Clip);
 });
 
