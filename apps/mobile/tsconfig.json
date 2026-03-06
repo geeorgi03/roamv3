@@ -1,8 +1,12 @@
 {
-  "extends": "../../tsconfig.base.json",
+  "extends": "expo/tsconfig.base",
   "compilerOptions": {
-    "outDir": "dist",
-    "rootDir": "src"
+    "strict": true,
+    "baseUrl": ".",
+    "paths": {
+      "@roam/db": ["../../packages/db/src"],
+      "@roam/types": ["../../packages/types/src"]
+    }
   },
-  "include": ["src/**/*"]
+  "include": ["**/*.ts", "**/*.tsx"]
 }

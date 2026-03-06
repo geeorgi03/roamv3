@@ -1,0 +1,22 @@
+{
+  "cli": {
+    "version": ">=13.0.0"
+  },
+  "build": {
+    "development": {
+      "developmentClient": true,
+      "distribution": "internal",
+      "ios": {},
+      "android": {}
+    },
+    "preview": {
+      "distribution": "internal",
+      "ios": {},
+      "android": {}
+    },
+    "production": {
+      "ios": {},
+      "android": {}
+    }
+  }
+}

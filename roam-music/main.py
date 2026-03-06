@@ -1,11 +1,12 @@
-"""
-Roam Music service entrypoint.
-"""
+"""Roam Music Analysis Service entrypoint."""
+
 import sys
+from dotenv import load_dotenv
 
 
 def main() -> int:
-    print("Roam Music service stub")
+    load_dotenv()
+    print("Roam Music Analysis Service — ready")
     return 0
 
 

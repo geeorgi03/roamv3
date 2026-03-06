@@ -1,25 +1,36 @@
-# Roam Music
+# Roam Music Analysis Service
 
-Python service for the Roam music stack.
+## Prerequisites
+
+- Python 3.11+
+- **uv** — install via `pip install uv` or `brew install uv`
 
 ## Setup
 
-1. Copy environment template:
-   ```bash
-   cp .env.example .env
-   ```
-2. Install dependencies (from repo root or this directory):
-   ```bash
-   pip install -e .
-   ```
-3. Run:
-   ```bash
-   python main.py
-   ```
+```bash
+cp .env.example .env
+```
+
+Fill in `SUPABASE_URL` and `SUPABASE_SERVICE_KEY` in `.env`.
+
+## Local run
+
+Preferred:
+
+```bash
+uv run main.py
+```
+
+Alternative:
+
+```bash
+pip install -e .
+python main.py
+```
 
 ## Docker
 
 ```bash
 docker build -t roam-music .
-docker run roam-music
+docker run --env-file .env roam-music
 ```

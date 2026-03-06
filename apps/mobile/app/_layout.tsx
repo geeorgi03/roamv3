@@ -1,0 +1,39 @@
+import { ActivityIndicator, StyleSheet, View } from 'react-native';
+import { Redirect, Stack, usePathname } from 'expo-router';
+import { useSession } from '../lib/hooks/useSession';
+import { theme } from '../lib/theme';
+
+export default function RootLayout() {
+  const { session, loading } = useSession();
+  const pathname = usePathname();
+
+  if (loading) {
+    return (
+      <View style={styles.loading}>
+        <ActivityIndicator size="large" color={theme.textPrimary} />
+      </View>
+    );
+  }
+
+  if (!session) {
+    if (pathname && !pathname.startsWith('/auth')) {
+      return <Redirect href="/auth/sign-in" />;
+    }
+    return <Stack />;
+  }
+
+  if (pathname?.startsWith('/auth')) {
+    return <Redirect href="/(app)" />;
+  }
+
+  return <Stack />;
+}
+
+const styles = StyleSheet.create({
+  loading: {
+    flex: 1,
+    backgroundColor: theme.background,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+});

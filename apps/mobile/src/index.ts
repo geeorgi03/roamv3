@@ -1,6 +1,6 @@
 /**
  * Roam Mobile entrypoint.
- * Imports shared types for contract compatibility.
+ * Uses @roam/types as the shared consumer contract.
  */
 import type { Session, Clip, MusicTrack, UploadStatus } from '@roam/types';
 

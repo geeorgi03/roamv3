@@ -1,0 +1,23 @@
+# Supabase local development configuration
+# https://supabase.com/docs/guides/cli/config
+
+project_id = "roam-choreography"
+
+[api]
+port = 54321
+schemas = ["public", "auth"]
+extra_search_path = ["public", "extensions"]
+
+[db]
+port = 54322
+
+[studio]
+port = 54323
+
+[inbucket]
+port = 54324
+
+[auth]
+site_url = "http://localhost:3000"
+jwt_expiry = 3600
+enable_signup = true

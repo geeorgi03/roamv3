@@ -1,0 +1,21 @@
+{
+  "expo": {
+    "scheme": "roam",
+    "ios": {
+      "bundleIdentifier": "com.roam.mobile"
+    },
+    "android": {
+      "package": "com.roam.mobile"
+    },
+    "plugins": [
+      [
+        "expo-router",
+        { "root": "app" }
+      ],
+      "expo-secure-store",
+      "expo-sqlite",
+      "expo-camera",
+      "expo-image-picker"
+    ]
+  }
+}
