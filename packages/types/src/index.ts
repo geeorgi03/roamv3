@@ -71,4 +71,5 @@ export interface MusicTrack {
   beat_grid: BeatGridEntry[] | null;
   sections: SectionEntry[] | null;
   analysis_status: 'pending' | 'processing' | 'complete' | 'failed';
+  downbeat_offset_ms?: number | null;
 }

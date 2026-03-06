@@ -6,16 +6,22 @@ import { Hono } from 'hono';
 import { serve } from '@hono/node-server';
 import { sessionsRoutes } from './routes/sessions.js';
 import { clipsRoutes } from './routes/clips.js';
+import { musicRoutes } from './routes/music.js';
 import { tagsRoutes } from './routes/tags.js';
+import { muxRoutes } from './routes/mux.js';
+import { webhooksRoutes } from './routes/webhooks.js';
 
 const app = new Hono();
 
 app.get('/', (c) => c.json({ name: 'Roam API', version: '0.0.1' }));
 
-// Mount more specific routes first so /sessions/:id/clips is matched before /sessions/:id
+// Mount more specific routes first so /sessions/:id/music and /sessions/:sessionId/clips are matched before /sessions/:id
+app.route('/sessions', musicRoutes);
 app.route('/sessions', clipsRoutes);
 app.route('/sessions', sessionsRoutes);
 app.route('/clips', tagsRoutes);
+app.route('/clips', muxRoutes); // POST /clips/upload-url
+app.route('/webhooks', webhooksRoutes); // POST /webhooks/mux
 
 app.onError((err, c) => {
   console.error(err);

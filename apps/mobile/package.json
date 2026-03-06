@@ -17,16 +17,21 @@
   "dependencies": {
     "@roam/db": "workspace:*",
     "@roam/types": "workspace:*",
+    "@react-native-community/slider": "^4.5.0",
     "@supabase/supabase-js": "^2.0.0",
     "expo": "~51.0.0",
+    "expo-av": "~14.0.0",
     "expo-camera": "~16.0.0",
+    "expo-document-picker": "~12.0.0",
     "expo-image-picker": "~16.0.0",
     "expo-router": "~3.5.0",
     "expo-secure-store": "~14.0.0",
     "expo-sqlite": "~14.0.0",
     "react": "18.2.0",
     "react-native": "0.74.5",
-    "react-native-mmkv": "^2.12.2"
+    "react-native-mmkv": "^2.12.2",
+    "react-native-youtube-iframe": "^2.2.0",
+    "tus-js-client": "^3.1.0"
   },
   "devDependencies": {
     "@babel/core": "^7.24.0",
