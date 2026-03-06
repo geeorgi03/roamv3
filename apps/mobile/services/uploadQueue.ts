@@ -127,6 +127,14 @@ export class UploadQueueService {
     this.processQueue();
   }
 
+  /**
+   * Resume queue processing after user intent (e.g. manual retry, post-upgrade).
+   * Call this when the user has upgraded or explicitly chooses to retry uploads.
+   */
+  resumeQueue() {
+    this.processQueue();
+  }
+
   retryClip(local_id: string) {
     const idx = this._queue.findIndex(
       (q) => q.local_id === local_id && q.status === 'failed'
@@ -214,7 +222,6 @@ export class UploadQueueService {
             setUploadQueue(this._queue);
             updateClipStatusWithEvent(item.local_id, 'failed', undefined, 'plan_limit_reached');
           }
-          this.processQueue();
           return;
         }
         if (!res.ok) {

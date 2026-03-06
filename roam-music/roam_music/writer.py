@@ -62,12 +62,12 @@ def write_failure(supabase_client: Any, job: dict, error: Exception) -> None:
 
 
 def write_timeout_requeue(supabase_client: Any, job: dict) -> None:
-    """Requeue job if attempt_count < 2, else mark as failed."""
+    """Requeue job if attempt_count < 1 (first timeout), else mark as failed at attempt_count=2."""
     try:
         job_id = job.get("id")
         attempt_count = job.get("attempt_count", 0) or 0
 
-        if attempt_count < 2:
+        if attempt_count < 1:
             supabase_client.table("analysis_jobs").update(
                 {
                     "status": "pending",
@@ -75,10 +75,17 @@ def write_timeout_requeue(supabase_client: Any, job: dict) -> None:
                 }
             ).eq("id", job_id).execute()
         else:
-            write_failure(
-                supabase_client,
-                job,
-                Exception("Job timeout exceeded; max retries exceeded"),
-            )
+            supabase_client.table("analysis_jobs").update(
+                {
+                    "status": "failed",
+                    "attempt_count": 2,
+                    "error": "Job timeout exceeded; max retries exceeded",
+                }
+            ).eq("id", job_id).execute()
+            music_track_id = job.get("music_track_id")
+            if music_track_id is not None:
+                supabase_client.table("music_tracks").update(
+                    {"analysis_status": "failed"}
+                ).eq("id", music_track_id).execute()
     except Exception:
         logging.exception("write_timeout_requeue failed")

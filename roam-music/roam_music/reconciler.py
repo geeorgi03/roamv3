@@ -7,9 +7,11 @@ def reconcile_expired_leases(supabase_client: Any) -> None:
     """
     Requeue or fail analysis jobs whose processing leases have expired.
 
-    - Jobs with attempt_count < 2 are moved back to 'pending' and attempt_count is incremented.
-    - Jobs with attempt_count >= 2 are marked as 'failed', and their associated music_tracks
-      rows are updated to analysis_status='failed'.
+    - Jobs with attempt_count < 1 (first lease expiry) are moved back to 'pending' and
+      attempt_count is incremented.
+    - Jobs with attempt_count >= 1 (second lease expiry) are marked as 'failed' with
+      attempt_count=2, and their associated music_tracks rows are updated to
+      analysis_status='failed'.
 
     All errors are caught and logged so the caller's poll loop is never disrupted.
     """
@@ -31,7 +33,7 @@ def reconcile_expired_leases(supabase_client: Any) -> None:
             attempt_count = row.get("attempt_count", 0) or 0
             music_track_id = row.get("music_track_id")
 
-            if attempt_count < 2:
+            if attempt_count < 1:
                 try:
                     (
                         supabase_client.table("analysis_jobs")
@@ -60,6 +62,7 @@ def reconcile_expired_leases(supabase_client: Any) -> None:
                         .update(
                             {
                                 "status": "failed",
+                                "attempt_count": 2,
                                 "error": "Lease expired; max retries exceeded",
                             }
                         )
