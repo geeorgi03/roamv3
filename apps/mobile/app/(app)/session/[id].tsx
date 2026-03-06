@@ -31,11 +31,14 @@ export default function SessionWorkspaceScreen() {
   const navigation = useNavigation();
   const { session } = useSession();
   const { musicTrack } = useMusicTrackStatus(id ?? null);
-  const { clips, refresh, retryClip } = useClips(id ?? null);
   const shareSheetRef = useRef<BottomSheetRef | null>(null);
   const captureSheetRef = useRef<BottomSheetRef | null>(null);
   const tagSheetRef = useRef<BottomSheetRef | null>(null);
   const paywallSheetRef = useRef<BottomSheetRef | null>(null);
+  const openPaywall = useCallback(() => {
+    paywallSheetRef.current?.snapToIndex(0);
+  }, []);
+  const { clips, refresh, retryClip } = useClips(id ?? null, openPaywall);
   const [sessionName, setSessionName] = useState('Session');
   const [selectedClip, setSelectedClip] = useState<ClipRow | null>(null);
 

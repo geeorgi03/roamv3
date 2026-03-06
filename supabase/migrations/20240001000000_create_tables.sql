@@ -76,13 +76,13 @@ as $$
   update analysis_jobs
   set
     status = 'processing',
-    attempt_count = attempt_count + 1,
     claimed_at = now(),
     lease_expires_at = now() + interval '60 seconds'
   where id = (
     select id
     from analysis_jobs
     where status = 'pending'
+    and (timeout_at is null or timeout_at > now())
     order by created_at
     for update skip locked
     limit 1

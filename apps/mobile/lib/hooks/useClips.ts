@@ -1,4 +1,4 @@
-import { useEffect, useState, useCallback } from 'react';
+import { useEffect, useState, useCallback, useRef } from 'react';
 import { supabase } from '../supabase';
 import {
   getClipsForSession,
@@ -11,8 +11,10 @@ import {
   type UploadQueueEvent,
 } from '../../services/uploadQueue';
 
-export function useClips(sessionId: string | null) {
+export function useClips(sessionId: string | null, onPlanLimitReached?: () => void) {
   const [clips, setClips] = useState<ClipRow[]>([]);
+  const onPlanLimitReachedRef = useRef(onPlanLimitReached);
+  onPlanLimitReachedRef.current = onPlanLimitReached;
 
   const refresh = useCallback(() => {
     if (!sessionId) {
@@ -161,6 +163,9 @@ export function useClips(sessionId: string | null) {
           };
         })
       );
+      if (event.reason === 'plan_limit_reached') {
+        onPlanLimitReachedRef.current?.();
+      }
     });
 
     return () => {

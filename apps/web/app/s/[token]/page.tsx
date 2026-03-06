@@ -4,8 +4,6 @@ import type { Session, Clip, MusicTrack, SectionEntry } from '@roam/types';
 import { ClipPlayer } from './ClipPlayer';
 import { MusicPlayer } from './MusicPlayer';
 
-type SharedMusicTrack = MusicTrack & { mux_playback_id?: string | null };
-
 function formatSectionTime(startMs: number): string {
   const totalSec = Math.floor(startMs / 1000);
   const m = Math.floor(totalSec / 60);
@@ -39,13 +37,23 @@ export default async function SharedSessionPage({
 
   const { session, music_track, clips } = data as {
     session: Session;
-    music_track: SharedMusicTrack | null;
+    music_track: MusicTrack | null;
     clips: Clip[];
   };
 
+  let uploadedAudioUrl: string | null = null;
+  if (
+    music_track?.source_type === 'upload' &&
+    music_track?.analysis_status === 'complete' &&
+    music_track.storage_path
+  ) {
+    const { data: signed } = await supabase.storage
+      .from('audio')
+      .createSignedUrl(music_track.storage_path, 3600);
+    uploadedAudioUrl = signed?.signedUrl ?? null;
+  }
+
   const sections = (music_track?.sections ?? null) as SectionEntry[] | null;
-  const hasUploadComplete =
-    music_track?.source_type === 'upload' && music_track?.analysis_status === 'complete';
   const youtubeEmbed = music_track?.source_type === 'youtube'
     ? youtubeEmbedUrl(music_track.source_url)
     : null;
@@ -65,21 +73,29 @@ export default async function SharedSessionPage({
       <main className="p-4 space-y-6">
         {/* Music */}
         <section>
-          {hasUploadComplete && music_track?.mux_playback_id && (
-            <>
-              <MusicPlayer playbackId={music_track.mux_playback_id} />
-              <div className="mt-2 flex flex-wrap gap-2">
-                {sections?.map((section, i) => (
-                  <span
-                    key={i}
-                    className="text-xs px-2 py-1 rounded bg-[#222] text-gray-300"
-                  >
-                    {section.label} · {formatSectionTime(section.start_ms)}
-                  </span>
-                ))}
+          {music_track?.source_type === 'upload' &&
+            music_track?.analysis_status === 'complete' &&
+            uploadedAudioUrl && (
+              <>
+                <MusicPlayer src={uploadedAudioUrl} />
+                <div className="mt-2 flex flex-wrap gap-2">
+                  {sections?.map((section, i) => (
+                    <span
+                      key={i}
+                      className="text-xs px-2 py-1 rounded bg-[#222] text-gray-300"
+                    >
+                      {section.label} · {formatSectionTime(section.start_ms)}
+                    </span>
+                  ))}
+                </div>
+              </>
+            )}
+          {music_track?.source_type === 'upload' &&
+            (music_track?.analysis_status !== 'complete' || !uploadedAudioUrl) && (
+              <div className="rounded-lg bg-[#222] p-6 text-gray-400 text-center max-w-2xl">
+                Music processing…
               </div>
-            </>
-          )}
+            )}
           {music_track?.source_type === 'youtube' && youtubeEmbed && (
             <>
               <iframe
