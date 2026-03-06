@@ -1,7 +1,7 @@
 import { Hono } from 'hono';
 import { requireAuth } from '../middleware/auth.js';
 import { supabase } from '../lib/supabase.js';
-import { checkClipLimit } from '../lib/planGate.js';
+import { evaluateClipLimit } from '../lib/planGate.js';
 
 const app = new Hono<{ Variables: { userId: string } }>().use(
   '*',
@@ -23,7 +23,7 @@ async function getSessionForUser(
 }
 
 /** POST /upload-url — get Mux Direct Upload URL; create clip row or reuse by (session_id, local_id) */
-app.post('/upload-url', checkClipLimit, async (c) => {
+app.post('/upload-url', async (c) => {
   const userId = c.get('userId');
 
   let body: {
@@ -47,6 +47,9 @@ app.post('/upload-url', checkClipLimit, async (c) => {
 
   const session = await getSessionForUser(body.session_id, userId);
   if (!session) return c.json({ error: 'Not found' }, 404);
+
+  const limitResult = await evaluateClipLimit(userId);
+  if (!limitResult.allowed) return c.json(limitResult.body, limitResult.status);
 
   const tokenId = process.env.MUX_TOKEN_ID;
   const tokenSecret = process.env.MUX_TOKEN_SECRET;
