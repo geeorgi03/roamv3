@@ -11,7 +11,7 @@
 cp .env.example .env
 ```
 
-Fill in `SUPABASE_URL` and `SUPABASE_SERVICE_KEY` in `.env`.
+Fill in `SUPABASE_URL` and `SUPABASE_SERVICE_ROLE_KEY` in `.env`.
 
 ## Local run
 

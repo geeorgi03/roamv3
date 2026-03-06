@@ -2,6 +2,7 @@
   "name": "roam-app",
   "private": true,
   "scripts": {
+    "prepare": "pnpm exec turbo run build --filter=@roam/db",
     "build": "turbo build",
     "dev": "turbo dev",
     "lint": "turbo lint",
