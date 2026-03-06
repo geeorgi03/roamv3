@@ -21,7 +21,7 @@ async function getSessionForUser(
   return data?.id ?? null;
 }
 
-/** POST /upload-url — get Mux Direct Upload URL and create clip row */
+/** POST /upload-url — get Mux Direct Upload URL; create clip row or reuse by (session_id, local_id) */
 app.post('/upload-url', async (c) => {
   const userId = c.get('userId');
 
@@ -55,26 +55,42 @@ app.post('/upload-url', async (c) => {
 
   const authHeader = `Basic ${Buffer.from(`${tokenId}:${tokenSecret}`).toString('base64')}`;
 
-  const { data: insertedClip, error: insertError } = await supabase
+  const passthrough = (clipId: string) =>
+    JSON.stringify({
+      clip_id: clipId,
+      local_id: body!.local_id,
+    });
+
+  // Idempotent by (session_id, local_id): reuse existing clip and issue fresh Mux URL
+  const { data: existingClip } = await supabase
     .from('clips')
-    .insert({
-      session_id: body.session_id,
-      local_id: body.local_id,
-      label: body.label ?? 'Clip',
-      recorded_at: body.recorded_at,
-      upload_status: 'queued',
-    })
-    .select('*')
-    .single();
+    .select('id')
+    .eq('session_id', body.session_id)
+    .eq('local_id', body.local_id)
+    .maybeSingle();
 
-  if (insertError) {
-    return c.json({ error: insertError.message }, 500);
+  let clipId: string;
+
+  if (existingClip?.id) {
+    clipId = existingClip.id;
+  } else {
+    const { data: insertedClip, error: insertError } = await supabase
+      .from('clips')
+      .insert({
+        session_id: body.session_id,
+        local_id: body.local_id,
+        label: body.label ?? 'Clip',
+        recorded_at: body.recorded_at,
+        upload_status: 'queued',
+      })
+      .select('*')
+      .single();
+
+    if (insertError) {
+      return c.json({ error: insertError.message }, 500);
+    }
+    clipId = insertedClip.id;
   }
-
-  const passthrough = JSON.stringify({
-    clip_id: insertedClip.id,
-    local_id: body.local_id,
-  });
 
   const muxRes = await fetch('https://api.mux.com/video/v1/uploads', {
     method: 'POST',
@@ -85,7 +101,7 @@ app.post('/upload-url', async (c) => {
     body: JSON.stringify({
       cors_origin: '*',
       new_asset_settings: { playback_policy: ['public'] },
-      passthrough,
+      passthrough: passthrough(clipId),
     }),
   });
 
@@ -114,9 +130,10 @@ app.post('/upload-url', async (c) => {
     .from('clips')
     .update({
       mux_upload_id: muxUploadId,
-      mux_passthrough: { clip_id: insertedClip.id, local_id: body.local_id },
+      mux_passthrough: { clip_id: clipId, local_id: body.local_id },
+      upload_status: 'queued',
     })
-    .eq('id', insertedClip.id);
+    .eq('id', clipId);
 
   if (updateError) {
     return c.json({ error: updateError.message }, 500);
@@ -125,10 +142,10 @@ app.post('/upload-url', async (c) => {
   return c.json(
     {
       upload_url: uploadUrl,
-      clip_id: insertedClip.id,
+      clip_id: clipId,
       mux_upload_id: muxUploadId,
     },
-    201
+    existingClip?.id ? 200 : 201
   );
 });
 

@@ -1,5 +1,4 @@
-import { Stack, router } from 'expo-router';
-import { TouchableOpacity, Text, StyleSheet } from 'react-native';
+import { Stack } from 'expo-router';
 
 export default function AppStackLayout() {
   return (
@@ -10,37 +9,20 @@ export default function AppStackLayout() {
         headerTitleStyle: { fontWeight: '700' },
       }}
     >
-      <Stack.Screen
-        name="index"
-        options={{
-          title: 'Roam',
-          headerRight: () => (
-            <TouchableOpacity
-              style={styles.headerButton}
-              onPress={() => router.push('/session/new')}
-            >
-              <Text style={styles.headerButtonText}>+</Text>
-            </TouchableOpacity>
-          ),
-        }}
-      />
+      <Stack.Screen name="index" options={{ title: 'Roam' }} />
       <Stack.Screen
         name="session/[id]"
         options={{
           title: 'New Session',
         }}
       />
+      <Stack.Screen
+        name="session/clip-player"
+        options={{
+          presentation: 'modal',
+          headerShown: false,
+        }}
+      />
     </Stack>
   );
 }
-
-const styles = StyleSheet.create({
-  headerButton: {
-    padding: 8,
-    marginRight: 8,
-  },
-  headerButtonText: {
-    color: '#fff',
-    fontSize: 24,
-  },
-});

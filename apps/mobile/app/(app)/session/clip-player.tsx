@@ -1,0 +1,281 @@
+import React, { useRef, useState, useEffect } from 'react';
+import {
+  View,
+  Text,
+  StyleSheet,
+  TouchableOpacity,
+} from 'react-native';
+import { useLocalSearchParams, useRouter } from 'expo-router';
+import { Video, AVPlaybackStatus } from 'expo-av';
+import Slider from '@react-native-community/slider';
+import { GestureDetector, Gesture } from 'react-native-gesture-handler';
+import { theme } from '../../../lib/theme';
+import { useClips } from '../../../lib/hooks/useClips';
+import { TagSheet } from '../../../components/TagSheet';
+import BottomSheet, { type BottomSheetRef } from '@gorhom/bottom-sheet';
+import type { ClipRow } from '../../../lib/database';
+
+export default function ClipPlayerScreen() {
+  const { sessionId, clipIndex } = useLocalSearchParams<{ sessionId: string; clipIndex: string }>();
+  const router = useRouter();
+  const { clips } = useClips(sessionId ?? null);
+  const index = parseInt(clipIndex ?? '0', 10);
+  const [currentIndex, setCurrentIndex] = useState(isNaN(index) ? 0 : index);
+  const [positionMillis, setPositionMillis] = useState(0);
+  const [durationMillis, setDurationMillis] = useState(0);
+  const [playing, setPlaying] = useState(true);
+  const [rate, setRate] = useState(1);
+  const [displayClip, setDisplayClip] = useState<ClipRow | null>(null);
+  const videoRef = useRef<Video>(null);
+  const tagSheetRef = useRef<BottomSheetRef | null>(null);
+
+  const clip = clips[currentIndex] ?? null;
+
+  useEffect(() => {
+    setCurrentIndex(Math.min(Math.max(0, isNaN(index) ? 0 : index), Math.max(0, clips.length - 1)));
+  }, [clipIndex, clips.length]);
+
+  useEffect(() => {
+    setDisplayClip(clip);
+  }, [clip]);
+
+  const onPlaybackStatusUpdate = (status: AVPlaybackStatus) => {
+    if (!status.isLoaded) return;
+    setPositionMillis(status.positionMillis);
+    if (status.durationMillis) setDurationMillis(status.durationMillis);
+    setPlaying(status.isPlaying);
+  };
+
+  const handlePlayPause = async () => {
+    if (!videoRef.current) return;
+    if (playing) await videoRef.current.pauseAsync();
+    else await videoRef.current.playAsync();
+  };
+
+  const handleSeekBack = async () => {
+    if (!videoRef.current) return;
+    const newPos = Math.max(0, positionMillis - 5000);
+    await videoRef.current.setPositionAsync(newPos);
+  };
+
+  const handleSpeedToggle = async () => {
+    if (!videoRef.current) return;
+    const newRate = rate === 1 ? 0.5 : 1;
+    setRate(newRate);
+    await videoRef.current.setRateAsync(newRate, true);
+  };
+
+  const handleSliderComplete = async (value: number) => {
+    if (!videoRef.current) return;
+    await videoRef.current.setPositionAsync(value);
+  };
+
+  const panGesture = Gesture.Pan()
+    .onEnd((e) => {
+      const { translationX, translationY, velocityX } = e;
+      if (Math.abs(translationY) > 80 && translationY > 0) {
+        router.back();
+        return;
+      }
+      if (Math.abs(translationX) > 60) {
+        if (translationX > 0 && currentIndex > 0) {
+          setCurrentIndex(currentIndex - 1);
+          setPositionMillis(0);
+        } else if (translationX < 0 && currentIndex < clips.length - 1) {
+          setCurrentIndex(currentIndex + 1);
+          setPositionMillis(0);
+        }
+      }
+    });
+
+  const handleTagSaved = (updatedClip: ClipRow) => {
+    setDisplayClip(updatedClip);
+  };
+
+  if (!clip) {
+    return (
+      <View style={styles.container}>
+        <Text style={styles.placeholderText}>No clip</Text>
+        <TouchableOpacity style={styles.closeBtn} onPress={() => router.back()}>
+          <Text style={styles.closeBtnText}>✕</Text>
+        </TouchableOpacity>
+      </View>
+    );
+  }
+
+  if (clip.upload_status !== 'ready') {
+    return (
+      <GestureDetector gesture={panGesture}>
+        <View style={styles.container}>
+          <View style={styles.placeholder}>
+            <Text style={styles.placeholderText}>Processing…</Text>
+            <Text style={styles.placeholderLabel}>{clip.label ?? 'Clip'}</Text>
+          </View>
+          <TouchableOpacity style={styles.closeBtn} onPress={() => router.back()}>
+            <Text style={styles.closeBtnText}>✕</Text>
+          </TouchableOpacity>
+        </View>
+      </GestureDetector>
+    );
+  }
+
+  const showTags = displayClip && (displayClip.move_name || displayClip.style || displayClip.energy);
+
+  return (
+    <GestureDetector gesture={panGesture}>
+      <View style={styles.container}>
+        <Video
+          key={clip.local_id}
+          ref={videoRef}
+          source={{ uri: `https://stream.mux.com/${clip.mux_playback_id}.m3u8` }}
+          style={StyleSheet.absoluteFill}
+          useNativeControls={false}
+          resizeMode="contain"
+          shouldPlay={playing}
+          onPlaybackStatusUpdate={onPlaybackStatusUpdate}
+        />
+
+        <TouchableOpacity style={styles.closeBtn} onPress={() => router.back()}>
+          <Text style={styles.closeBtnText}>✕</Text>
+        </TouchableOpacity>
+
+        <View style={styles.controls}>
+          <Slider
+            style={styles.slider}
+            minimumValue={0}
+            maximumValue={durationMillis || 1}
+            value={positionMillis}
+            onSlidingComplete={handleSliderComplete}
+            minimumTrackTintColor={theme.textPrimary}
+            maximumTrackTintColor={theme.textSecondary}
+            thumbTintColor={theme.textPrimary}
+          />
+          <View style={styles.controlsRow}>
+            <TouchableOpacity onPress={handleSeekBack} style={styles.controlBtn}>
+              <Text style={styles.controlBtnText}>−5s</Text>
+            </TouchableOpacity>
+            <TouchableOpacity onPress={handlePlayPause} style={styles.controlBtn}>
+              <Text style={styles.controlBtnText}>{playing ? 'Pause' : 'Play'}</Text>
+            </TouchableOpacity>
+            <TouchableOpacity onPress={handleSpeedToggle} style={styles.controlBtn}>
+              <Text style={styles.controlBtnText}>{rate}×</Text>
+            </TouchableOpacity>
+          </View>
+        </View>
+
+        <View style={styles.tagsRow}>
+          {showTags ? (
+            <>
+              {displayClip!.move_name ? (
+                <View style={styles.tagPill}><Text style={styles.tagPillText}>{displayClip!.move_name}</Text></View>
+              ) : null}
+              {displayClip!.style ? (
+                <View style={styles.tagPill}><Text style={styles.tagPillText}>{displayClip!.style}</Text></View>
+              ) : null}
+              {displayClip!.energy ? (
+                <View style={styles.tagPill}><Text style={styles.tagPillText}>{displayClip!.energy}</Text></View>
+              ) : null}
+            </>
+          ) : (
+            <TouchableOpacity onPress={() => tagSheetRef.current?.snapToIndex(0)}>
+              <Text style={styles.addTagsText}>Add tags →</Text>
+            </TouchableOpacity>
+          )}
+        </View>
+      </View>
+
+      <TagSheet
+        clip={displayClip}
+        bottomSheetRef={tagSheetRef}
+        onSaved={handleTagSaved}
+        musicTrackBpm={undefined}
+      />
+    </GestureDetector>
+  );
+}
+
+const styles = StyleSheet.create({
+  container: {
+    flex: 1,
+    backgroundColor: '#000',
+  },
+  placeholder: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  placeholderText: {
+    fontSize: 18,
+    color: theme.textSecondary,
+    marginBottom: 8,
+  },
+  placeholderLabel: {
+    fontSize: 14,
+    color: theme.textPrimary,
+  },
+  closeBtn: {
+    position: 'absolute',
+    top: 48,
+    right: 16,
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    backgroundColor: 'rgba(0,0,0,0.5)',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  closeBtnText: {
+    color: '#fff',
+    fontSize: 20,
+  },
+  controls: {
+    position: 'absolute',
+    bottom: 100,
+    left: 16,
+    right: 16,
+  },
+  slider: {
+    width: '100%',
+    height: 40,
+  },
+  controlsRow: {
+    flexDirection: 'row',
+    justifyContent: 'center',
+    gap: 24,
+    marginTop: 8,
+  },
+  controlBtn: {
+    paddingVertical: 8,
+    paddingHorizontal: 16,
+  },
+  controlBtnText: {
+    color: theme.textPrimary,
+    fontSize: 16,
+    fontWeight: '600',
+  },
+  tagsRow: {
+    position: 'absolute',
+    bottom: 24,
+    left: 16,
+    right: 16,
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 8,
+    alignItems: 'center',
+  },
+  tagPill: {
+    paddingVertical: 6,
+    paddingHorizontal: 12,
+    borderRadius: theme.borderRadius,
+    backgroundColor: 'rgba(255,255,255,0.2)',
+  },
+  tagPillText: {
+    color: theme.textPrimary,
+    fontSize: 14,
+  },
+  addTagsText: {
+    color: theme.untaggedText,
+    fontSize: 14,
+    fontWeight: '600',
+  },
+});

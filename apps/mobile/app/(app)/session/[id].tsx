@@ -1,17 +1,75 @@
-import { View, Text, StyleSheet, TouchableOpacity, Alert } from 'react-native';
-import { useLocalSearchParams, useRouter, useNavigation } from 'expo-router';
-import { useLayoutEffect, useRef } from 'react';
+import {
+  View,
+  Text,
+  StyleSheet,
+  TouchableOpacity,
+  FlatList,
+} from 'react-native';
+import { useLocalSearchParams, useRouter, useNavigation, useFocusEffect } from 'expo-router';
+import { useLayoutEffect, useRef, useState, useCallback } from 'react';
+import * as ImagePicker from 'expo-image-picker';
 import { theme } from '../../../lib/theme';
 import { useMusicTrackStatus } from '../../../lib/hooks/useMusicTrackStatus';
+import { useClips } from '../../../lib/hooks/useClips';
+import { useSession } from '../../../lib/hooks/useSession';
 import BottomSheet, { type BottomSheetRef } from '@gorhom/bottom-sheet';
 import { ShareSheet } from '../../../components/ShareSheet';
+import { CaptureSheet } from '../../../components/CaptureSheet';
+import { ClipCard } from '../../../components/ClipCard';
+import { TagSheet } from '../../../components/TagSheet';
+import { saveClip } from '../../../lib/saveClip';
+import { storage } from '../../../lib/storage';
+import type { ClipRow } from '../../../lib/database';
+
+const API_BASE = process.env.EXPO_PUBLIC_API_URL ?? 'http://localhost:3001';
+const PENDING_CLIP_KEY = 'pending_camera_clip';
 
 export default function SessionWorkspaceScreen() {
   const { id } = useLocalSearchParams<{ id: string }>();
   const router = useRouter();
   const navigation = useNavigation();
+  const { session } = useSession();
   const { musicTrack } = useMusicTrackStatus(id ?? null);
+  const { clips, refresh, updateLocalClip } = useClips(id ?? null);
   const shareSheetRef = useRef<BottomSheetRef | null>(null);
+  const captureSheetRef = useRef<BottomSheetRef | null>(null);
+  const tagSheetRef = useRef<BottomSheetRef | null>(null);
+  const [sessionName, setSessionName] = useState('Session');
+  const [selectedClip, setSelectedClip] = useState<ClipRow | null>(null);
+
+  useFocusEffect(
+    useCallback(() => {
+      const raw = storage.getString(PENDING_CLIP_KEY);
+      if (!raw || !session?.access_token || !id) return;
+      try {
+        const { sessionId, uri } = JSON.parse(raw) as { sessionId: string; uri: string };
+        if (sessionId !== id) return;
+        storage.delete(PENDING_CLIP_KEY);
+        saveClip(id, uri, 'Clip', session.access_token, undefined, (localId, updates) =>
+          updateLocalClip(localId, updates)
+        );
+        refresh();
+      } catch {
+        storage.delete(PENDING_CLIP_KEY);
+      }
+    }, [id, session?.access_token, refresh, updateLocalClip])
+  );
+
+  useLayoutEffect(() => {
+    if (id) {
+      (async () => {
+        if (!session?.access_token) return;
+        const res = await fetch(`${API_BASE}/sessions/${id}`, {
+          headers: { Authorization: `Bearer ${session.access_token}` },
+        });
+        if (res.ok) {
+          const data = await res.json();
+          const name = (data as { session?: { name?: string } }).session?.name;
+          if (name) setSessionName(name);
+        }
+      })();
+    }
+  }, [id, session?.access_token]);
 
   useLayoutEffect(() => {
     navigation.setOptions({
@@ -51,13 +109,73 @@ export default function SessionWorkspaceScreen() {
     }
   };
 
+  const openPlayer = (index: number) => {
+    router.push({
+      pathname: './clip-player',
+      params: { sessionId: id, clipIndex: String(index) },
+    });
+  };
+
+  const openTagSheet = (clip: ClipRow) => {
+    setSelectedClip(clip);
+    tagSheetRef.current?.snapToIndex(0);
+  };
+
+  const handleTagSaved = (updatedClip: ClipRow) => {
+    setSelectedClip(updatedClip);
+    refresh();
+  };
+
+  const retryUpload = (clip: ClipRow) => {
+    if (!id || !session?.access_token || !clip.file_uri) return;
+    saveClip(id, clip.file_uri, clip.label ?? 'Clip', session.access_token, clip.local_id, (localId, updates) =>
+      updateLocalClip(localId, updates)
+    );
+  };
+
+  const handleRecord = () => {
+    if (id) router.push({ pathname: './camera', params: { id } });
+  };
+
+  const handleGallery = async () => {
+    if (!id || !session?.access_token) return;
+    const result = await ImagePicker.launchImageLibraryAsync({
+      mediaTypes: ['videos'],
+      allowsMultipleSelection: true,
+      selectionLimit: 5,
+    });
+    if (result.canceled || !result.assets.length) return;
+    const start = clips.length;
+    const onUpdate = (localId: string, updates: { upload_status?: string; upload_progress?: number }) =>
+      updateLocalClip(localId, updates);
+    result.assets.forEach((asset, i) => {
+      saveClip(id, asset.uri, `Clip ${start + i + 1}`, session.access_token, undefined, onUpdate);
+    });
+    refresh();
+  };
+
+  const untaggedClipCount = clips.filter((c) => !c.move_name && !c.style).length;
+
   return (
     <View style={styles.container}>
-      <View style={styles.placeholder}>
-        <Text style={styles.placeholderText}>
-          Session workspace — clips will appear here
-        </Text>
-      </View>
+      <FlatList
+        data={clips}
+        keyExtractor={(item) => item.local_id}
+        contentContainerStyle={{ paddingBottom: 120 }}
+        ListEmptyComponent={
+          <View style={styles.emptyWrap}>
+            <Text style={styles.placeholderText}>No clips yet — tap + to record</Text>
+          </View>
+        }
+        renderItem={({ item, index }) => (
+          <ClipCard
+            clip={item}
+            onPress={() => openPlayer(index)}
+            onLongPress={() => openTagSheet(item)}
+            onRetry={() => retryUpload(item)}
+          />
+        )}
+      />
       <TouchableOpacity
         style={styles.musicEntry}
         onPress={handleMusicPress}
@@ -69,17 +187,28 @@ export default function SessionWorkspaceScreen() {
       </TouchableOpacity>
       <TouchableOpacity
         style={styles.fab}
-        onPress={() => Alert.alert('Capture coming soon')}
+        onPress={() => captureSheetRef.current?.snapToIndex(0)}
         activeOpacity={0.8}
       >
         <Text style={styles.fabIcon}>+</Text>
       </TouchableOpacity>
       <ShareSheet
         sessionId={id ?? ''}
-        sessionName="Session"
+        sessionName={sessionName}
         hasMusic={!!musicTrack}
-        untaggedClipCount={0}
+        untaggedClipCount={untaggedClipCount}
         bottomSheetRef={shareSheetRef}
+      />
+      <CaptureSheet
+        bottomSheetRef={captureSheetRef}
+        onRecord={handleRecord}
+        onGallery={handleGallery}
+      />
+      <TagSheet
+        clip={selectedClip}
+        bottomSheetRef={tagSheetRef}
+        onSaved={handleTagSaved}
+        musicTrackBpm={musicTrack?.bpm ?? null}
       />
     </View>
   );
@@ -98,9 +227,8 @@ const styles = StyleSheet.create({
     color: '#fff',
     fontSize: 24,
   },
-  placeholder: {
-    flex: 1,
-    justifyContent: 'center',
+  emptyWrap: {
+    paddingVertical: 48,
     alignItems: 'center',
   },
   placeholderText: {
@@ -108,14 +236,15 @@ const styles = StyleSheet.create({
     color: theme.textSecondary,
   },
   musicEntry: {
+    position: 'absolute',
+    bottom: 100,
+    alignSelf: 'center',
     paddingVertical: 12,
     paddingHorizontal: 20,
     backgroundColor: theme.accent,
     borderWidth: 1,
     borderColor: theme.textSecondary,
     borderRadius: theme.borderRadius,
-    alignSelf: 'center',
-    marginBottom: 24,
   },
   musicEntryText: {
     fontSize: 16,
