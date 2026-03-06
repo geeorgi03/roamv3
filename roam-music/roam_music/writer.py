@@ -1,10 +1,21 @@
 import logging
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from typing import Any
 
 
 def _utc_now_iso() -> str:
     return datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
+
+
+def _requeue_timeout_at() -> str:
+    """Return UTC ISO string 5 minutes from now for requeued jobs."""
+    return (datetime.now(timezone.utc) + timedelta(minutes=5)).isoformat().replace(
+        "+00:00", "Z"
+    )
+
+
+# Shared policy for claim and requeue; matches claim_analysis_job timeout window.
+_future_timeout_iso = _requeue_timeout_at
 
 
 def write_success(supabase_client: Any, job: dict, result: dict) -> None:
@@ -72,13 +83,16 @@ def write_timeout_requeue(supabase_client: Any, job: dict) -> None:
                 {
                     "status": "pending",
                     "attempt_count": attempt_count + 1,
+                    "timeout_at": _requeue_timeout_at(),
+                    "claimed_at": None,
+                    "lease_expires_at": None,
                 }
-            ).eq("id", job_id).execute()
+            ).eq("id", job_id).eq("status", "processing").execute()
         else:
             supabase_client.table("analysis_jobs").update(
                 {
                     "status": "failed",
-                    "attempt_count": 2,
+                    "attempt_count": attempt_count + 1,
                     "error": "Job timeout exceeded; max retries exceeded",
                 }
             ).eq("id", job_id).execute()

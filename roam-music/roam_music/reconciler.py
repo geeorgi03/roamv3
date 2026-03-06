@@ -2,6 +2,8 @@ import logging
 from datetime import datetime, timezone
 from typing import Any
 
+from roam_music.writer import _requeue_timeout_at
+
 
 def reconcile_expired_leases(supabase_client: Any) -> None:
     """
@@ -41,9 +43,13 @@ def reconcile_expired_leases(supabase_client: Any) -> None:
                             {
                                 "status": "pending",
                                 "attempt_count": attempt_count + 1,
+                                "timeout_at": _requeue_timeout_at(),
+                                "claimed_at": None,
+                                "lease_expires_at": None,
                             }
                         )
                         .eq("id", job_id)
+                        .eq("status", "processing")
                         .execute()
                     )
                     logging.info(
@@ -62,7 +68,7 @@ def reconcile_expired_leases(supabase_client: Any) -> None:
                         .update(
                             {
                                 "status": "failed",
-                                "attempt_count": 2,
+                                "attempt_count": attempt_count + 1,
                                 "error": "Lease expired; max retries exceeded",
                             }
                         )
