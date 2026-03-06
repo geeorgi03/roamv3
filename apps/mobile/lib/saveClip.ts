@@ -3,11 +3,13 @@ import { uploadQueue } from '../services/uploadQueue';
 
 export type SaveClipResult =
   | { ok: true }
+  | { ok: false; reason: 'plan_limit_reached' }
   | { ok: false; reason: 'error'; message: string };
 
 /**
- * Persists clip metadata locally and enqueues for upload. Does not block on network.
- * Plan limits are enforced server-side during upload URL creation (/clips/upload-url).
+ * Persists clip metadata locally and enqueues for upload.
+ * Local persistence and enqueue are unconditional; paywall is surfaced only from
+ * authoritative server responses (403 plan_limit_reached during /clips/upload-url).
  */
 export async function saveClip(
   sessionId: string,
@@ -16,11 +18,11 @@ export async function saveClip(
   token: string
 ): Promise<SaveClipResult> {
   try {
-    const local_id = crypto.randomUUID();
-    const recorded_at = new Date().toISOString();
-
     const existing = getClipsForSession(sessionId);
     const finalLabel = `Clip ${existing.length + 1}`;
+
+    const local_id = crypto.randomUUID();
+    const recorded_at = new Date().toISOString();
 
     insertClip({
       local_id,

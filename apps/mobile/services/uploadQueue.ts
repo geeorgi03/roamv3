@@ -28,8 +28,6 @@ export interface UploadQueueEvent {
   local_id: string;
   status?: UploadQueueStatus;
   progress?: number;
-  /** Emitted when upload fails due to plan limit; UI should surface paywall */
-  reason?: 'plan_limit_reached';
 }
 
 type UploadQueueListener = (event: UploadQueueEvent) => void;
@@ -206,13 +204,7 @@ export class UploadQueueService {
           | { error?: string };
         if (!res.ok) {
           const errMsg = ('error' in data && data.error) || res.statusText;
-          const planLimit =
-            res.status === 403 &&
-            'error' in data &&
-            (data as { error?: string }).error === 'plan_limit_reached';
-          const err = new Error(errMsg) as Error & { planLimit?: boolean };
-          err.planLimit = planLimit;
-          throw err;
+          throw new Error(errMsg);
         }
 
         const clip_id = (data as { clip_id: string }).clip_id;
@@ -262,25 +254,6 @@ export class UploadQueueService {
           typeof error === 'object' &&
           'name' in error &&
           (error as { name?: string | undefined }).name === 'UploadAbortedError');
-
-      const isPlanLimit =
-        error &&
-        typeof error === 'object' &&
-        'planLimit' in error &&
-        (error as { planLimit?: boolean }).planLimit === true;
-
-      if (isPlanLimit) {
-        current.status = 'failed';
-        setUploadQueue(this._queue);
-        updateClipStatusWithEvent(current.local_id, 'failed');
-        emitUploadQueueEvent({
-          local_id: current.local_id,
-          status: 'failed',
-          reason: 'plan_limit_reached',
-        });
-        this.processQueue();
-        return;
-      }
 
       if (isAbort) {
         if (current.status === 'uploading') {

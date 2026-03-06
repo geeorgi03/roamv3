@@ -20,7 +20,6 @@ import { TagSheet } from '../../../components/TagSheet';
 import { PaywallSheet } from '../../../components/PaywallSheet';
 import { saveClip } from '../../../lib/saveClip';
 import { storage } from '../../../lib/storage';
-import { addUploadQueueListener } from '../../../services/uploadQueue';
 import type { ClipRow } from '../../../lib/database';
 
 const API_BASE = process.env.EXPO_PUBLIC_API_URL ?? 'http://localhost:3001';
@@ -62,15 +61,6 @@ export default function SessionWorkspaceScreen() {
       run();
     }, [id, session?.access_token, refresh])
   );
-
-  useLayoutEffect(() => {
-    const unsub = addUploadQueueListener((event) => {
-      if (event.reason === 'plan_limit_reached') {
-        paywallSheetRef.current?.snapToIndex(0);
-      }
-    });
-    return unsub;
-  }, []);
 
   useLayoutEffect(() => {
     if (id) {
@@ -159,10 +149,7 @@ export default function SessionWorkspaceScreen() {
     for (let i = 0; i < result.assets.length; i++) {
       const asset = result.assets[i];
       const saveResult = await saveClip(id, asset.uri, `Clip ${start + i + 1}`, session.access_token);
-      if (saveResult.ok === false) {
-        // Non-plan error: local persistence failed; stop adding more
-        break;
-      }
+      if (saveResult.ok === false) break;
     }
     refresh();
   };

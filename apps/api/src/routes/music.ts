@@ -38,7 +38,7 @@ const MIME_TO_EXT: Record<string, string> = {
 const YOUTUBE_URL_REGEX = /^(https?:\/\/)?(www\.)?(youtube\.com\/watch\?v=|youtu\.be\/)[\w-]+/;
 
 /** POST /sessions/:id/music — upload file or submit YouTube URL */
-app.post('/:id/music', checkMusicSegmentation, async (c) => {
+app.post('/:id/music', async (c) => {
   const userId = c.get('userId');
   const sessionId = c.req.param('id');
   const session = await getSessionForUser(sessionId, userId);
@@ -47,6 +47,8 @@ app.post('/:id/music', checkMusicSegmentation, async (c) => {
   const contentType = c.req.header('Content-Type') ?? '';
 
   if (contentType.includes('multipart/form-data')) {
+    const gateRes = await checkMusicSegmentation(c, async () => {});
+    if (gateRes) return gateRes;
     const formData = await c.req.formData();
     const file = formData.get('file');
     if (!file || !(file instanceof File)) {

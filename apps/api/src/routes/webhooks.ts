@@ -1,7 +1,7 @@
 import { createHmac, timingSafeEqual } from 'node:crypto';
 import { Hono } from 'hono';
 import { supabase } from '../lib/supabase.js';
-import { stripe } from '../lib/stripe.js';
+import { stripe, PRICE_IDS } from '../lib/stripe.js';
 
 function verifyMuxSignature(
   rawBody: string,
@@ -142,18 +142,47 @@ app.post('/stripe', async (c) => {
   const secret = process.env.STRIPE_WEBHOOK_SECRET ?? '';
   let event: { type: string; data?: { object?: Record<string, unknown> } };
   try {
-    event = stripe.webhooks.constructEvent(rawBody, sig, secret) as typeof event;
+    event = stripe.webhooks.constructEvent(rawBody, sig, secret) as unknown as typeof event;
   } catch {
     return c.json({ error: 'Invalid signature' }, 400);
   }
 
   const VALID_PLANS = ['free', 'creator', 'pro', 'studio'] as const;
+  const LOOKUP_KEY_TO_PLAN: Record<string, (typeof VALID_PLANS)[number]> = {
+    creator: 'creator',
+    pro: 'pro',
+    studio: 'studio',
+  };
 
   function planFromSubscription(sub: Record<string, unknown>): string | null {
-    const items = sub.items as { data?: Array<{ price?: { metadata?: Record<string, string> } }> } | undefined;
+    const items = sub.items as {
+      data?: Array<{
+        price?: {
+          metadata?: Record<string, string>;
+          lookup_key?: string;
+          id?: string;
+        };
+      }>;
+    } | undefined;
     const price = items?.data?.[0]?.price;
-    const plan = price?.metadata?.plan;
-    return typeof plan === 'string' && VALID_PLANS.includes(plan as (typeof VALID_PLANS)[number]) ? plan : null;
+    if (!price) return null;
+
+    const fromMetadata = price.metadata?.plan;
+    if (typeof fromMetadata === 'string' && VALID_PLANS.includes(fromMetadata as (typeof VALID_PLANS)[number])) {
+      return fromMetadata;
+    }
+
+    const fromLookupKey = price.lookup_key && LOOKUP_KEY_TO_PLAN[price.lookup_key];
+    if (fromLookupKey) return fromLookupKey;
+
+    const priceId = price.id;
+    if (typeof priceId === 'string') {
+      const byId = (Object.entries(PRICE_IDS) as [keyof typeof PRICE_IDS, string | undefined][])
+        .find(([, id]) => id === priceId)?.[0];
+      if (byId) return byId;
+    }
+
+    return null;
   }
 
   function customerIdFromSubscription(sub: Record<string, unknown>): string | null {
