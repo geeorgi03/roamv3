@@ -15,9 +15,10 @@ export interface ClipCardProps {
   onPress: () => void;
   onLongPress: () => void;
   onRetry?: () => void;
+  commentCount?: number;
 }
 
-export function ClipCard({ clip, onPress, onLongPress, onRetry }: ClipCardProps) {
+export function ClipCard({ clip, onPress, onLongPress, onRetry, commentCount }: ClipCardProps) {
   const showThumbnail =
     clip.mux_playback_id && clip.upload_status === 'ready';
   const timeStr = clip.recorded_at
@@ -87,6 +88,11 @@ export function ClipCard({ clip, onPress, onLongPress, onRetry }: ClipCardProps)
           {untagged && (
             <View style={[styles.pill, styles.pillUntagged]}>
               <Text style={styles.pillUntaggedText}>untagged</Text>
+            </View>
+          )}
+          {commentCount != null && commentCount > 0 && (
+            <View style={[styles.pill, styles.pillComment]}>
+              <Text style={styles.pillCommentText}>💬 {commentCount}</Text>
             </View>
           )}
         </View>
@@ -179,5 +185,12 @@ const styles = StyleSheet.create({
   pillUntaggedText: {
     fontSize: 12,
     color: theme.untaggedText,
+  },
+  pillComment: {
+    backgroundColor: 'rgba(184, 134, 11, 0.3)',
+  },
+  pillCommentText: {
+    fontSize: 12,
+    color: '#b8860b',
   },
 });

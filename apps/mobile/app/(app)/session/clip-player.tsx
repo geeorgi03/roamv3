@@ -1,9 +1,10 @@
-import React, { useRef, useState, useEffect } from 'react';
+import React, { useRef, useState, useEffect, useCallback } from 'react';
 import {
   View,
   Text,
   StyleSheet,
   TouchableOpacity,
+  Modal,
 } from 'react-native';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { Video, AVPlaybackStatus } from 'expo-av';
@@ -11,9 +12,15 @@ import Slider from '@react-native-community/slider';
 import { GestureDetector, Gesture } from 'react-native-gesture-handler';
 import { theme } from '../../../lib/theme';
 import { useClips } from '../../../lib/hooks/useClips';
+import { useSession } from '../../../lib/hooks/useSession';
 import { TagSheet } from '../../../components/TagSheet';
 import BottomSheet, { type BottomSheetRef } from '@gorhom/bottom-sheet';
+import { supabase } from '../../../lib/supabase';
 import type { ClipRow } from '../../../lib/database';
+import type { ClipComment, ClipAnnotation, AnnotationType } from '@roam/types';
+import { AnnotationOverlay } from '../../../components/AnnotationOverlay';
+
+const API_BASE = process.env.EXPO_PUBLIC_API_URL ?? 'http://localhost:3001';
 
 type SessionParams = {
   sessionId?: string;
@@ -38,6 +45,7 @@ export default function ClipPlayerScreen() {
   const hasSessionContext = !!sessionId && !!clipIndex;
 
   const { clips } = useClips(hasSessionContext ? (sessionId as string) : null);
+  const { session } = useSession();
 
   const parsedIndex = parseInt((clipIndex as string) ?? '0', 10);
   const [currentIndex, setCurrentIndex] = useState(
@@ -48,6 +56,16 @@ export default function ClipPlayerScreen() {
   const [playing, setPlaying] = useState(true);
   const [rate, setRate] = useState(1);
   const [displayClip, setDisplayClip] = useState<ClipRow | null>(null);
+  const [comments, setComments] = useState<ClipComment[]>([]);
+  const [feedbackOpen, setFeedbackOpen] = useState(false);
+  const [commentOverlay, setCommentOverlay] = useState<ClipComment | null>(null);
+  const [annotations, setAnnotations] = useState<ClipAnnotation[]>([]);
+  const [annotationMode, setAnnotationMode] = useState(false);
+  const [activeTool, setActiveTool] = useState<AnnotationType>('text');
+  const [pendingAnnotations, setPendingAnnotations] = useState<
+    Array<{ type: AnnotationType; timecode_ms: number; payload: unknown }>
+  >([]);
+  const [frameSize, setFrameSize] = useState({ width: 0, height: 0 });
   const videoRef = useRef<Video>(null);
   const tagSheetRef = useRef<BottomSheetRef | null>(null);
 
@@ -66,6 +84,123 @@ export default function ClipPlayerScreen() {
     if (!hasSessionContext) return;
     setDisplayClip(clip);
   }, [hasSessionContext, clip]);
+
+  const clipServerId = clip?.server_id ?? null;
+
+  useEffect(() => {
+    if (!clipServerId || !session?.access_token) return;
+    let mounted = true;
+    (async () => {
+      try {
+        const [commentsRes, feedbackRes] = await Promise.all([
+          fetch(`${API_BASE}/clips/${clipServerId}/comments`, {
+            headers: { Authorization: `Bearer ${session.access_token}` },
+          }),
+          fetch(`${API_BASE}/clips/${clipServerId}/feedback-requests`, {
+            headers: { Authorization: `Bearer ${session.access_token}` },
+          }),
+        ]);
+        if (!mounted) return;
+        if (commentsRes.ok) {
+          const data = await commentsRes.json();
+          setComments(data as ClipComment[]);
+        }
+        if (feedbackRes.ok) {
+          const data = await feedbackRes.json();
+          setFeedbackOpen((data as { status?: string }).status === 'open');
+        }
+      } catch {
+        // ignore
+      }
+    })();
+    return () => {
+      mounted = false;
+    };
+  }, [clipServerId, session?.access_token]);
+
+  useEffect(() => {
+    if (!clipServerId) return;
+    let mounted = true;
+    const channel = supabase
+      .channel(`clip_comments:clip_id=eq.${clipServerId}`)
+      .on(
+        'postgres_changes',
+        {
+          event: 'INSERT',
+          schema: 'public',
+          table: 'clip_comments',
+          filter: `clip_id=eq.${clipServerId}`,
+        },
+        (payload) => {
+          if (!mounted) return;
+          const row = payload.new as Record<string, unknown>;
+          setComments((prev) => [
+            ...prev,
+            {
+              id: row.id as string,
+              clip_id: row.clip_id as string,
+              session_id: row.session_id as string,
+              timecode_ms: row.timecode_ms as number,
+              text: row.text as string,
+              commenter_name: row.commenter_name as string | null,
+              created_at: row.created_at as string,
+            },
+          ]);
+        }
+      )
+      .subscribe();
+    return () => {
+      mounted = false;
+      supabase.removeChannel(channel);
+    };
+  }, [clipServerId]);
+
+  useEffect(() => {
+    if (!clipServerId || !session?.access_token) return;
+    let mounted = true;
+    (async () => {
+      try {
+        const res = await fetch(`${API_BASE}/clips/${clipServerId}/annotations`, {
+          headers: { Authorization: `Bearer ${session.access_token}` },
+        });
+        if (mounted && res.ok) {
+          const data = await res.json();
+          setAnnotations(data as ClipAnnotation[]);
+        }
+      } catch {
+        // ignore
+      }
+    })();
+    return () => {
+      mounted = false;
+    };
+  }, [clipServerId, session?.access_token]);
+
+  const handleRequestFeedback = useCallback(async () => {
+    if (!clipServerId || !session?.access_token) return;
+    try {
+      const res = await fetch(`${API_BASE}/clips/${clipServerId}/feedback-requests`, {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${session.access_token}` },
+      });
+      if (res.ok) setFeedbackOpen(true);
+    } catch {
+      // ignore
+    }
+  }, [clipServerId, session?.access_token]);
+
+  const handleCloseFeedback = useCallback(async () => {
+    if (!clipServerId || !session?.access_token) return;
+    try {
+      const res = await fetch(`${API_BASE}/clips/${clipServerId}/feedback-requests`, {
+        method: 'DELETE',
+        headers: { Authorization: `Bearer ${session.access_token}` },
+      });
+      if (res.ok) setFeedbackOpen(false);
+    } catch {
+      // ignore
+    }
+  }, [clipServerId, session?.access_token]);
 
   const onPlaybackStatusUpdate = (status: AVPlaybackStatus) => {
     if (!status.isLoaded) return;
@@ -119,6 +254,93 @@ export default function ClipPlayerScreen() {
   const handleTagSaved = (updatedClip: ClipRow) => {
     setDisplayClip(updatedClip);
   };
+
+  const handleAnnotatePress = useCallback(async () => {
+    if (videoRef.current) await videoRef.current.pauseAsync();
+    setAnnotationMode(true);
+    setPlaying(false);
+  }, []);
+
+  const handlePlaceText = useCallback(
+    (x: number, y: number, text: string) => {
+      setPendingAnnotations((prev) => [
+        ...prev,
+        { type: 'text', timecode_ms: positionMillis, payload: { x, y, text } },
+      ]);
+    },
+    [positionMillis]
+  );
+
+  const handlePlaceArrow = useCallback(
+    (x1: number, y1: number, x2: number, y2: number) => {
+      setPendingAnnotations((prev) => [
+        ...prev,
+        { type: 'arrow', timecode_ms: positionMillis, payload: { x1, y1, x2, y2 } },
+      ]);
+    },
+    [positionMillis]
+  );
+
+  const handlePlaceCircle = useCallback(
+    (x: number, y: number, r: number) => {
+      setPendingAnnotations((prev) => [
+        ...prev,
+        { type: 'circle', timecode_ms: positionMillis, payload: { x, y, r } },
+      ]);
+    },
+    [positionMillis]
+  );
+
+  const handleAnnotationDone = useCallback(async () => {
+    if (pendingAnnotations.length === 0) {
+      setAnnotationMode(false);
+      return;
+    }
+    if (!clipServerId || !session?.access_token) {
+      setAnnotationMode(false);
+      return;
+    }
+    for (const p of pendingAnnotations) {
+      try {
+        await fetch(`${API_BASE}/clips/${clipServerId}/annotations`, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            Authorization: `Bearer ${session.access_token}`,
+          },
+          body: JSON.stringify({
+            type: p.type,
+            timecode_ms: p.timecode_ms,
+            payload: p.payload,
+          }),
+        });
+      } catch {
+        // ignore
+      }
+    }
+    const newAnnotations: ClipAnnotation[] = pendingAnnotations.map((p, i) => ({
+      id: `pending-${i}`,
+      clip_id: clipServerId,
+      timecode_ms: p.timecode_ms,
+      type: p.type,
+      payload: p.payload as ClipAnnotation['payload'],
+      created_at: new Date().toISOString(),
+    }));
+    setAnnotations((prev) => [...prev, ...newAnnotations]);
+    setPendingAnnotations([]);
+    setAnnotationMode(false);
+  }, [clipServerId, session?.access_token, pendingAnnotations]);
+
+  const handleAnnotationMarkerPress = useCallback(
+    async (tc: number) => {
+      if (videoRef.current) {
+        await videoRef.current.setPositionAsync(tc);
+        setPositionMillis(tc);
+      }
+      setAnnotationMode(true);
+    },
+    []
+  );
 
   const hasLibraryClip = !hasSessionContext && !!mux_playback_id;
 
@@ -250,32 +472,147 @@ export default function ClipPlayerScreen() {
   return (
     <GestureDetector gesture={panGesture}>
       <View style={styles.container}>
-        <Video
-          key={clip!.local_id}
-          ref={videoRef}
-          source={{ uri: `https://stream.mux.com/${clip!.mux_playback_id}.m3u8` }}
+        <View
           style={StyleSheet.absoluteFill}
-          useNativeControls={false}
-          resizeMode="contain"
-          shouldPlay={playing}
-          onPlaybackStatusUpdate={onPlaybackStatusUpdate}
-        />
+          onLayout={(e) => {
+            const { width, height } = e.nativeEvent.layout;
+            setFrameSize((prev) => (prev.width !== width || prev.height !== height ? { width, height } : prev));
+          }}
+        >
+          <Video
+            key={clip!.local_id}
+            ref={videoRef}
+            source={{ uri: `https://stream.mux.com/${clip!.mux_playback_id}.m3u8` }}
+            style={StyleSheet.absoluteFill}
+            useNativeControls={false}
+            resizeMode="contain"
+            shouldPlay={playing}
+            onPlaybackStatusUpdate={onPlaybackStatusUpdate}
+          />
+          {annotationMode && frameSize.width > 0 && frameSize.height > 0 && (
+            <AnnotationOverlay
+              annotations={[
+                ...annotations,
+                ...pendingAnnotations.map((p, i) => ({
+                  id: `pending-${i}`,
+                  clip_id: clipServerId!,
+                  timecode_ms: p.timecode_ms,
+                  type: p.type,
+                  payload: p.payload as ClipAnnotation['payload'],
+                  created_at: '',
+                })),
+              ]}
+              frameWidth={frameSize.width}
+              frameHeight={frameSize.height}
+              activeTool={activeTool}
+              onPlaceText={handlePlaceText}
+              onPlaceArrow={handlePlaceArrow}
+              onPlaceCircle={handlePlaceCircle}
+            />
+          )}
+        </View>
 
         <TouchableOpacity style={styles.closeBtn} onPress={() => router.back()}>
           <Text style={styles.closeBtnText}>✕</Text>
         </TouchableOpacity>
 
+        {feedbackOpen ? (
+          <TouchableOpacity
+            style={styles.feedbackBadge}
+            onPress={handleCloseFeedback}
+          >
+            <Text style={styles.feedbackBadgeText}>Feedback Open</Text>
+          </TouchableOpacity>
+        ) : (
+          <TouchableOpacity
+            style={styles.requestFeedbackBtn}
+            onPress={handleRequestFeedback}
+          >
+            <Text style={styles.requestFeedbackText}>Request Feedback</Text>
+          </TouchableOpacity>
+        )}
+
+        {!playing && (
+          <TouchableOpacity
+            style={styles.annotateBtn}
+            onPress={handleAnnotatePress}
+          >
+            <Text style={styles.annotateBtnText}>Annotate</Text>
+          </TouchableOpacity>
+        )}
+
+        {annotationMode && (
+          <View style={styles.annotationToolbar}>
+            <TouchableOpacity
+              style={[styles.toolBtn, activeTool === 'text' && styles.toolBtnActive]}
+              onPress={() => setActiveTool('text')}
+            >
+              <Text style={styles.toolBtnText}>Text</Text>
+            </TouchableOpacity>
+            <TouchableOpacity
+              style={[styles.toolBtn, activeTool === 'arrow' && styles.toolBtnActive]}
+              onPress={() => setActiveTool('arrow')}
+            >
+              <Text style={styles.toolBtnText}>Arrow</Text>
+            </TouchableOpacity>
+            <TouchableOpacity
+              style={[styles.toolBtn, activeTool === 'circle' && styles.toolBtnActive]}
+              onPress={() => setActiveTool('circle')}
+            >
+              <Text style={styles.toolBtnText}>Circle</Text>
+            </TouchableOpacity>
+            <TouchableOpacity
+              style={styles.doneBtn}
+              onPress={handleAnnotationDone}
+            >
+              <Text style={styles.doneBtnText}>Done</Text>
+            </TouchableOpacity>
+          </View>
+        )}
+
         <View style={styles.controls}>
-          <Slider
-            style={styles.slider}
-            minimumValue={0}
-            maximumValue={durationMillis || 1}
-            value={positionMillis}
-            onSlidingComplete={handleSliderComplete}
-            minimumTrackTintColor={theme.textPrimary}
-            maximumTrackTintColor={theme.textSecondary}
-            thumbTintColor={theme.textPrimary}
-          />
+          <View style={styles.sliderWrap}>
+            {(comments.length > 0 || annotations.length > 0) && durationMillis > 0 && (
+              <View style={styles.commentMarkers} pointerEvents="box-none">
+                {comments.map((c) => {
+                  const ratio = c.timecode_ms / durationMillis;
+                  return (
+                    <TouchableOpacity
+                      key={`c-${c.id}`}
+                      style={[
+                        styles.commentMarker,
+                        { left: `${Math.min(1, Math.max(0, ratio)) * 100}%` },
+                      ]}
+                      onPress={() => setCommentOverlay(c)}
+                    />
+                  );
+                })}
+                {annotations.map((a) => {
+                  const ratio = a.timecode_ms / durationMillis;
+                  return (
+                    <TouchableOpacity
+                      key={`a-${a.id}`}
+                      style={[
+                        styles.annotationMarker,
+                        { left: `${Math.min(1, Math.max(0, ratio)) * 100}%` },
+                      ]}
+                      onPress={() => handleAnnotationMarkerPress(a.timecode_ms)}
+                    />
+                  );
+                })}
+              </View>
+            )}
+            <Slider
+              style={styles.slider}
+              minimumValue={0}
+              maximumValue={durationMillis || 1}
+              value={positionMillis}
+              onSlidingComplete={handleSliderComplete}
+              minimumTrackTintColor={theme.textPrimary}
+              maximumTrackTintColor={theme.textSecondary}
+              thumbTintColor={theme.textPrimary}
+            />
+          </View>
           <View style={styles.controlsRow}>
             <TouchableOpacity onPress={handleSeekBack} style={styles.controlBtn}>
               <Text style={styles.controlBtnText}>−5s</Text>
@@ -327,6 +664,28 @@ export default function ClipPlayerScreen() {
         onSaved={handleTagSaved}
         musicTrackBpm={undefined}
       />
+
+      <Modal
+        visible={!!commentOverlay}
+        transparent
+        animationType="fade"
+        onRequestClose={() => setCommentOverlay(null)}
+      >
+        <TouchableOpacity
+          style={styles.commentOverlayBackdrop}
+          activeOpacity={1}
+          onPress={() => setCommentOverlay(null)}
+        >
+          {commentOverlay && (
+            <View style={styles.commentOverlay} onStartShouldSetResponder={() => true}>
+              <Text style={styles.commentOverlayName}>
+                {commentOverlay.commenter_name || 'Anonymous'}
+              </Text>
+              <Text style={styles.commentOverlayText}>{commentOverlay.text}</Text>
+            </View>
+          )}
+        </TouchableOpacity>
+      </Modal>
     </GestureDetector>
   );
 }
@@ -414,5 +773,140 @@ const styles = StyleSheet.create({
     color: theme.untaggedText,
     fontSize: 14,
     fontWeight: '600',
+  },
+  requestFeedbackBtn: {
+    position: 'absolute',
+    top: 48,
+    left: 16,
+    paddingVertical: 8,
+    paddingHorizontal: 12,
+    borderRadius: theme.borderRadius,
+    backgroundColor: 'rgba(0,0,0,0.5)',
+  },
+  requestFeedbackText: {
+    color: '#fff',
+    fontSize: 14,
+    fontWeight: '600',
+  },
+  feedbackBadge: {
+    position: 'absolute',
+    top: 48,
+    left: 16,
+    paddingVertical: 8,
+    paddingHorizontal: 12,
+    borderRadius: theme.borderRadius,
+    backgroundColor: 'rgba(184, 134, 11, 0.8)',
+  },
+  feedbackBadgeText: {
+    color: '#fff',
+    fontSize: 14,
+    fontWeight: '600',
+  },
+  sliderWrap: {
+    width: '100%',
+    position: 'relative',
+  },
+  commentMarkers: {
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    right: 0,
+    height: 24,
+    marginLeft: 12,
+    marginRight: 12,
+  },
+  commentMarker: {
+    position: 'absolute',
+    top: 0,
+    width: 10,
+    height: 10,
+    borderRadius: 5,
+    backgroundColor: '#b8860b',
+    marginLeft: -5,
+  },
+  annotationMarker: {
+    position: 'absolute',
+    top: 2,
+    width: 8,
+    height: 8,
+    marginLeft: -4,
+    backgroundColor: '#6b8e23',
+    transform: [{ rotate: '45deg' }],
+  },
+  annotateBtn: {
+    position: 'absolute',
+    top: 48,
+    right: 64,
+    paddingVertical: 8,
+    paddingHorizontal: 12,
+    borderRadius: theme.borderRadius,
+    backgroundColor: 'rgba(0,0,0,0.5)',
+  },
+  annotateBtnText: {
+    color: '#fff',
+    fontSize: 14,
+    fontWeight: '600',
+  },
+  annotationToolbar: {
+    position: 'absolute',
+    bottom: 100,
+    left: 16,
+    right: 16,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    paddingVertical: 8,
+    paddingHorizontal: 12,
+    backgroundColor: 'rgba(0,0,0,0.7)',
+    borderRadius: theme.borderRadius,
+  },
+  toolBtn: {
+    paddingVertical: 8,
+    paddingHorizontal: 14,
+    borderRadius: 8,
+    backgroundColor: '#333',
+  },
+  toolBtnActive: {
+    backgroundColor: '#b8860b',
+  },
+  toolBtnText: {
+    color: '#fff',
+    fontSize: 14,
+    fontWeight: '600',
+  },
+  doneBtn: {
+    marginLeft: 'auto',
+    paddingVertical: 8,
+    paddingHorizontal: 16,
+    borderRadius: 8,
+    backgroundColor: '#6b8e23',
+  },
+  doneBtnText: {
+    color: '#fff',
+    fontSize: 14,
+    fontWeight: '600',
+  },
+  commentOverlayBackdrop: {
+    flex: 1,
+    backgroundColor: 'rgba(0,0,0,0.6)',
+    justifyContent: 'center',
+    alignItems: 'center',
+    padding: 24,
+  },
+  commentOverlay: {
+    backgroundColor: '#222',
+    borderRadius: theme.borderRadius,
+    padding: 16,
+    maxWidth: 320,
+  },
+  commentOverlayName: {
+    color: theme.textPrimary,
+    fontSize: 14,
+    fontWeight: '600',
+    marginBottom: 8,
+  },
+  commentOverlayText: {
+    color: theme.textSecondary,
+    fontSize: 14,
   },
 });

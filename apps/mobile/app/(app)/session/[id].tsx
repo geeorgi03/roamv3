@@ -6,7 +6,7 @@ import {
   FlatList,
 } from 'react-native';
 import { useLocalSearchParams, useRouter, useNavigation, useFocusEffect } from 'expo-router';
-import { useLayoutEffect, useRef, useState, useCallback } from 'react';
+import { useLayoutEffect, useRef, useState, useCallback, useEffect } from 'react';
 import * as ImagePicker from 'expo-image-picker';
 import { theme } from '../../../lib/theme';
 import { useMusicTrackStatus } from '../../../lib/hooks/useMusicTrackStatus';
@@ -18,6 +18,7 @@ import { CaptureSheet } from '../../../components/CaptureSheet';
 import { ClipCard } from '../../../components/ClipCard';
 import { TagSheet } from '../../../components/TagSheet';
 import { PaywallSheet } from '../../../components/PaywallSheet';
+import { AssemblyView } from './assembly';
 import { saveClip } from '../../../lib/saveClip';
 import { storage } from '../../../lib/storage';
 import type { ClipRow } from '../../../lib/database';
@@ -41,6 +42,8 @@ export default function SessionWorkspaceScreen() {
   const { clips, refresh, retryClip } = useClips(id ?? null, openPaywall);
   const [sessionName, setSessionName] = useState('Session');
   const [selectedClip, setSelectedClip] = useState<ClipRow | null>(null);
+  const [commentCounts, setCommentCounts] = useState<Record<string, number>>({});
+  const [activeTab, setActiveTab] = useState<'clips' | 'assembly'>('clips');
 
   useFocusEffect(
     useCallback(() => {
@@ -158,8 +161,66 @@ export default function SessionWorkspaceScreen() {
 
   const untaggedClipCount = clips.filter((c) => !c.move_name && !c.style).length;
 
+  useEffect(() => {
+    if (!id || !session?.access_token) return;
+    const withServerId = clips.filter((c) => c.server_id);
+    if (withServerId.length === 0) {
+      setCommentCounts({});
+      return;
+    }
+    let mounted = true;
+    (async () => {
+      const counts: Record<string, number> = {};
+      await Promise.all(
+        withServerId.map(async (c) => {
+          if (!c.server_id) return;
+          try {
+            const res = await fetch(`${API_BASE}/clips/${c.server_id}/comments`, {
+              headers: { Authorization: `Bearer ${session!.access_token}` },
+            });
+            if (mounted && res.ok) {
+              const data = await res.json();
+              counts[c.server_id!] = Array.isArray(data) ? data.length : 0;
+            }
+          } catch {
+            // ignore
+          }
+        })
+      );
+      if (mounted) setCommentCounts((prev) => ({ ...prev, ...counts }));
+    })();
+    return () => {
+      mounted = false;
+    };
+  }, [id, session?.access_token, clips]);
+
   return (
     <View style={styles.container}>
+      <View style={styles.tabBar}>
+        <TouchableOpacity
+          style={[styles.tab, activeTab === 'clips' && styles.tabActive]}
+          onPress={() => setActiveTab('clips')}
+        >
+          <Text style={[styles.tabText, activeTab === 'clips' && styles.tabTextActive]}>
+            Clips
+          </Text>
+        </TouchableOpacity>
+        <TouchableOpacity
+          style={[styles.tab, activeTab === 'assembly' && styles.tabActive]}
+          onPress={() => setActiveTab('assembly')}
+        >
+          <Text style={[styles.tabText, activeTab === 'assembly' && styles.tabTextActive]}>
+            Assembly
+          </Text>
+        </TouchableOpacity>
+      </View>
+
+      {activeTab === 'assembly' ? (
+        <AssemblyView
+          sessionId={id ?? ''}
+          onBack={() => setActiveTab('clips')}
+        />
+      ) : (
       <FlatList
         data={clips}
         keyExtractor={(item) => item.local_id}
@@ -175,25 +236,31 @@ export default function SessionWorkspaceScreen() {
             onPress={() => openPlayer(index)}
             onLongPress={() => openTagSheet(item)}
             onRetry={() => retryClip(item.local_id)}
+            commentCount={item.server_id ? commentCounts[item.server_id] : undefined}
           />
         )}
       />
-      <TouchableOpacity
-        style={styles.musicEntry}
-        onPress={handleMusicPress}
-        activeOpacity={0.8}
-      >
-        <Text style={styles.musicEntryText}>
-          {musicTrack ? 'Edit alignment' : 'Set up music'}
-        </Text>
-      </TouchableOpacity>
-      <TouchableOpacity
-        style={styles.fab}
-        onPress={() => captureSheetRef.current?.snapToIndex(0)}
-        activeOpacity={0.8}
-      >
-        <Text style={styles.fabIcon}>+</Text>
-      </TouchableOpacity>
+      )}
+      {activeTab === 'clips' && (
+        <>
+          <TouchableOpacity
+            style={styles.musicEntry}
+            onPress={handleMusicPress}
+            activeOpacity={0.8}
+          >
+            <Text style={styles.musicEntryText}>
+              {musicTrack ? 'Edit alignment' : 'Set up music'}
+            </Text>
+          </TouchableOpacity>
+          <TouchableOpacity
+            style={styles.fab}
+            onPress={() => captureSheetRef.current?.snapToIndex(0)}
+            activeOpacity={0.8}
+          >
+            <Text style={styles.fabIcon}>+</Text>
+          </TouchableOpacity>
+        </>
+      )}
       <ShareSheet
         sessionId={id ?? ''}
         sessionName={sessionName}
@@ -237,6 +304,28 @@ const styles = StyleSheet.create({
   placeholderText: {
     fontSize: 16,
     color: theme.textSecondary,
+  },
+  tabBar: {
+    flexDirection: 'row',
+    borderBottomWidth: 1,
+    borderBottomColor: '#222',
+  },
+  tab: {
+    flex: 1,
+    paddingVertical: 12,
+    alignItems: 'center',
+  },
+  tabActive: {
+    borderBottomWidth: 2,
+    borderBottomColor: theme.untaggedText,
+  },
+  tabText: {
+    fontSize: 16,
+    fontWeight: '600',
+    color: theme.textSecondary,
+  },
+  tabTextActive: {
+    color: theme.textPrimary,
   },
   musicEntry: {
     position: 'absolute',
