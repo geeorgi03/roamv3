@@ -4,6 +4,9 @@
   "private": true,
   "main": "expo-router/entry",
   "scripts": {
+    "prestart": "pnpm exec turbo run build --filter=@roam/db",
+    "preandroid": "pnpm exec turbo run build --filter=@roam/db",
+    "preios": "pnpm exec turbo run build --filter=@roam/db",
     "start": "expo start",
     "android": "expo start --android",
     "ios": "expo start --ios",

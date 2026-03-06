@@ -4,6 +4,7 @@
   "private": true,
   "type": "module",
   "scripts": {
+    "predev": "pnpm exec turbo run build --filter=@roam/db",
     "build": "tsc",
     "dev": "tsx watch src/index.ts",
     "lint": "eslint src",

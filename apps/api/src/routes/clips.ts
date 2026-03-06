@@ -28,7 +28,7 @@ app.get('/:sessionId/clips', async (c) => {
     .from('clips')
     .select('*')
     .eq('session_id', sessionId)
-    .order('recorded_at', { ascending: true });
+    .order('recorded_at', { ascending: false });
 
   if (error) return c.json({ error: error.message }, 500);
   return c.json({ clips: data as Clip[] });
