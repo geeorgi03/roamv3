@@ -85,3 +85,55 @@ export interface MusicTrack {
   analysis_status: 'pending' | 'processing' | 'complete' | 'failed';
   downbeat_offset_ms?: number | null;
 }
+
+/** ---- Annotation & Feedback (V1.0) ---- */
+export type AnnotationType = 'text' | 'arrow' | 'circle';
+
+export interface ClipComment {
+  id: UUID;
+  clip_id: UUID;
+  session_id: UUID;
+  timecode_ms: number;
+  text: string;
+  commenter_name: string | null;
+  created_at: ISODateTime;
+}
+
+export interface FeedbackRequest {
+  id: UUID;
+  clip_id: UUID;
+  session_id: UUID;
+  status: 'open' | 'closed';
+  created_at: ISODateTime;
+}
+
+export type TextPayload = { x: number; y: number; text: string };
+export type ArrowPayload = { x1: number; y1: number; x2: number; y2: number };
+export type CirclePayload = { cx: number; cy: number; r: number };
+
+export interface ClipAnnotation {
+  id: UUID;
+  clip_id: UUID;
+  timecode_ms: number;
+  type: AnnotationType;
+  payload: TextPayload | ArrowPayload | CirclePayload;
+  created_at: ISODateTime;
+}
+
+export interface ClipTagHistory {
+  id: UUID;
+  clip_id: UUID;
+  snapshot: Record<string, unknown>;
+  saved_at: ISODateTime;
+  saved_by: UUID;
+}
+
+export interface SectionClip {
+  id: UUID;
+  session_id: UUID;
+  section_label: string;
+  section_start_ms: number;
+  clip_id: UUID;
+  position: number;
+  created_at: ISODateTime;
+}
