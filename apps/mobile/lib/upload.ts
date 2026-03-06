@@ -6,34 +6,52 @@ import * as tus from 'tus-js-client';
  * @param fileUri - Expo/React Native file URI (e.g. file:///...)
  * @param onProgress - Optional callback with progress percentage 0-100
  */
-export async function uploadClipToMux(
+export function uploadClipToMux(
   uploadUrl: string,
   fileUri: string,
   onProgress?: (pct: number) => void
-): Promise<void> {
-  const response = await fetch(fileUri);
-  const blob = await response.blob();
+): { promise: Promise<void>; abort: () => void } {
+  let upload: tus.Upload | null = null;
+  let aborted = false;
 
-  return new Promise<void>((resolve, reject) => {
-    const upload = new tus.Upload(blob, {
-      uploadUrl,
-      chunkSize: 5 * 1024 * 1024,
-      retryDelays: [0, 1000, 3000],
-      metadata: {
-        filetype: 'video/mp4',
-      },
-      onProgress(bytesUploaded: number, bytesTotal: number) {
-        if (bytesTotal > 0) {
-          onProgress?.(Math.round((bytesUploaded / bytesTotal) * 100));
-        }
-      },
-      onError(error: Error) {
-        reject(error);
-      },
-      onSuccess() {
-        resolve();
-      },
+  const promise = (async () => {
+    const response = await fetch(fileUri);
+    const blob = await response.blob();
+
+    return new Promise<void>((resolve, reject) => {
+      upload = new tus.Upload(blob, {
+        uploadUrl,
+        chunkSize: 5 * 1024 * 1024,
+        retryDelays: [],
+        metadata: {
+          filetype: 'video/mp4',
+        },
+        onProgress(bytesUploaded: number, bytesTotal: number) {
+          if (bytesTotal > 0) {
+            onProgress?.(Math.round((bytesUploaded / bytesTotal) * 100));
+          }
+        },
+        onError(error: Error) {
+          reject(error);
+        },
+        onSuccess() {
+          resolve();
+        },
+      });
+
+      if (aborted) {
+        upload.abort();
+        return;
+      }
+      upload.start();
     });
-    upload.start();
-  });
+  })();
+
+  return {
+    promise,
+    abort: () => {
+      aborted = true;
+      upload?.abort();
+    },
+  };
 }

@@ -11,6 +11,7 @@ import { musicRoutes } from './routes/music.js';
 import { tagsRoutes } from './routes/tags.js';
 import { muxRoutes } from './routes/mux.js';
 import { webhooksRoutes } from './routes/webhooks.js';
+import { libraryRoutes } from './routes/library.js';
 
 const app = new Hono();
 
@@ -24,6 +25,7 @@ app.route('/sessions', shareRoutes);
 app.route('/clips', tagsRoutes);
 app.route('/clips', muxRoutes); // POST /clips/upload-url
 app.route('/webhooks', webhooksRoutes); // POST /webhooks/mux
+app.route('/library', libraryRoutes);
 
 app.onError((err, c) => {
   console.error(err);

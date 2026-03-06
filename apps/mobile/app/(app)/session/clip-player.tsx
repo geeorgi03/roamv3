@@ -15,12 +15,34 @@ import { TagSheet } from '../../../components/TagSheet';
 import BottomSheet, { type BottomSheetRef } from '@gorhom/bottom-sheet';
 import type { ClipRow } from '../../../lib/database';
 
+type SessionParams = {
+  sessionId?: string;
+  clipIndex?: string;
+};
+
+type LibraryParams = {
+  clipId?: string;
+  mux_playback_id?: string;
+  move_name?: string;
+  style?: string;
+  energy?: string;
+};
+
+type PlayerParams = SessionParams & LibraryParams;
+
 export default function ClipPlayerScreen() {
-  const { sessionId, clipIndex } = useLocalSearchParams<{ sessionId: string; clipIndex: string }>();
+  const { sessionId, clipIndex, mux_playback_id, move_name, style, energy } =
+    useLocalSearchParams<PlayerParams>();
   const router = useRouter();
-  const { clips } = useClips(sessionId ?? null);
-  const index = parseInt(clipIndex ?? '0', 10);
-  const [currentIndex, setCurrentIndex] = useState(isNaN(index) ? 0 : index);
+
+  const hasSessionContext = !!sessionId && !!clipIndex;
+
+  const { clips } = useClips(hasSessionContext ? (sessionId as string) : null);
+
+  const parsedIndex = parseInt((clipIndex as string) ?? '0', 10);
+  const [currentIndex, setCurrentIndex] = useState(
+    isNaN(parsedIndex) ? 0 : parsedIndex
+  );
   const [positionMillis, setPositionMillis] = useState(0);
   const [durationMillis, setDurationMillis] = useState(0);
   const [playing, setPlaying] = useState(true);
@@ -29,15 +51,21 @@ export default function ClipPlayerScreen() {
   const videoRef = useRef<Video>(null);
   const tagSheetRef = useRef<BottomSheetRef | null>(null);
 
-  const clip = clips[currentIndex] ?? null;
+  const clip = hasSessionContext ? clips[currentIndex] ?? null : null;
 
   useEffect(() => {
-    setCurrentIndex(Math.min(Math.max(0, isNaN(index) ? 0 : index), Math.max(0, clips.length - 1)));
-  }, [clipIndex, clips.length]);
+    if (!hasSessionContext) return;
+    const safeIndex = Math.min(
+      Math.max(0, isNaN(parsedIndex) ? 0 : parsedIndex),
+      Math.max(0, clips.length - 1)
+    );
+    setCurrentIndex(safeIndex);
+  }, [hasSessionContext, parsedIndex, clips.length]);
 
   useEffect(() => {
+    if (!hasSessionContext) return;
     setDisplayClip(clip);
-  }, [clip]);
+  }, [hasSessionContext, clip]);
 
   const onPlaybackStatusUpdate = (status: AVPlaybackStatus) => {
     if (!status.isLoaded) return;
@@ -70,29 +98,31 @@ export default function ClipPlayerScreen() {
     await videoRef.current.setPositionAsync(value);
   };
 
-  const panGesture = Gesture.Pan()
-    .onEnd((e) => {
-      const { translationX, translationY, velocityX } = e;
-      if (Math.abs(translationY) > 80 && translationY > 0) {
-        router.back();
-        return;
+  const panGesture = Gesture.Pan().onEnd((e) => {
+    const { translationX, translationY } = e;
+    if (Math.abs(translationY) > 80 && translationY > 0) {
+      router.back();
+      return;
+    }
+    if (!hasSessionContext) return;
+    if (Math.abs(translationX) > 60) {
+      if (translationX > 0 && currentIndex > 0) {
+        setCurrentIndex(currentIndex - 1);
+        setPositionMillis(0);
+      } else if (translationX < 0 && currentIndex < clips.length - 1) {
+        setCurrentIndex(currentIndex + 1);
+        setPositionMillis(0);
       }
-      if (Math.abs(translationX) > 60) {
-        if (translationX > 0 && currentIndex > 0) {
-          setCurrentIndex(currentIndex - 1);
-          setPositionMillis(0);
-        } else if (translationX < 0 && currentIndex < clips.length - 1) {
-          setCurrentIndex(currentIndex + 1);
-          setPositionMillis(0);
-        }
-      }
-    });
+    }
+  });
 
   const handleTagSaved = (updatedClip: ClipRow) => {
     setDisplayClip(updatedClip);
   };
 
-  if (!clip) {
+  const hasLibraryClip = !hasSessionContext && !!mux_playback_id;
+
+  if (!hasSessionContext && !hasLibraryClip) {
     return (
       <View style={styles.container}>
         <Text style={styles.placeholderText}>No clip</Text>
@@ -103,13 +133,24 @@ export default function ClipPlayerScreen() {
     );
   }
 
-  if (clip.upload_status !== 'ready') {
+  if (hasSessionContext && !clip) {
+    return (
+      <View style={styles.container}>
+        <Text style={styles.placeholderText}>No clip</Text>
+        <TouchableOpacity style={styles.closeBtn} onPress={() => router.back()}>
+          <Text style={styles.closeBtnText}>✕</Text>
+        </TouchableOpacity>
+      </View>
+    );
+  }
+
+  if (hasSessionContext && clip!.upload_status !== 'ready') {
     return (
       <GestureDetector gesture={panGesture}>
         <View style={styles.container}>
           <View style={styles.placeholder}>
             <Text style={styles.placeholderText}>Processing…</Text>
-            <Text style={styles.placeholderLabel}>{clip.label ?? 'Clip'}</Text>
+            <Text style={styles.placeholderLabel}>{clip!.label ?? 'Clip'}</Text>
           </View>
           <TouchableOpacity style={styles.closeBtn} onPress={() => router.back()}>
             <Text style={styles.closeBtnText}>✕</Text>
@@ -119,15 +160,100 @@ export default function ClipPlayerScreen() {
     );
   }
 
-  const showTags = displayClip && (displayClip.move_name || displayClip.style || displayClip.energy);
+  if (!hasSessionContext && hasLibraryClip) {
+    const libraryMoveName = move_name ?? null;
+    const libraryStyle = style ?? null;
+    const libraryEnergy = energy ?? null;
+    const showLibraryTags =
+      !!libraryMoveName || !!libraryStyle || !!libraryEnergy;
+
+    return (
+      <GestureDetector gesture={panGesture}>
+        <View style={styles.container}>
+          <Video
+            key={mux_playback_id}
+            ref={videoRef}
+            source={{ uri: `https://stream.mux.com/${mux_playback_id}.m3u8` }}
+            style={StyleSheet.absoluteFill}
+            useNativeControls={false}
+            resizeMode="contain"
+            shouldPlay={playing}
+            onPlaybackStatusUpdate={onPlaybackStatusUpdate}
+          />
+
+          <TouchableOpacity style={styles.closeBtn} onPress={() => router.back()}>
+            <Text style={styles.closeBtnText}>✕</Text>
+          </TouchableOpacity>
+
+          <View style={styles.controls}>
+            <Slider
+              style={styles.slider}
+              minimumValue={0}
+              maximumValue={durationMillis || 1}
+              value={positionMillis}
+              onSlidingComplete={handleSliderComplete}
+              minimumTrackTintColor={theme.textPrimary}
+              maximumTrackTintColor={theme.textSecondary}
+              thumbTintColor={theme.textPrimary}
+            />
+            <View style={styles.controlsRow}>
+              <TouchableOpacity onPress={handleSeekBack} style={styles.controlBtn}>
+                <Text style={styles.controlBtnText}>−5s</Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                onPress={handlePlayPause}
+                style={styles.controlBtn}
+              >
+                <Text style={styles.controlBtnText}>
+                  {playing ? 'Pause' : 'Play'}
+                </Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                onPress={handleSpeedToggle}
+                style={styles.controlBtn}
+              >
+                <Text style={styles.controlBtnText}>{rate}×</Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+
+          <View style={styles.tagsRow}>
+            {showLibraryTags ? (
+              <>
+                {libraryMoveName ? (
+                  <View style={styles.tagPill}>
+                    <Text style={styles.tagPillText}>{libraryMoveName}</Text>
+                  </View>
+                ) : null}
+                {libraryStyle ? (
+                  <View style={styles.tagPill}>
+                    <Text style={styles.tagPillText}>{libraryStyle}</Text>
+                  </View>
+                ) : null}
+                {libraryEnergy ? (
+                  <View style={styles.tagPill}>
+                    <Text style={styles.tagPillText}>{libraryEnergy}</Text>
+                  </View>
+                ) : null}
+              </>
+            ) : null}
+          </View>
+        </View>
+      </GestureDetector>
+    );
+  }
+
+  const showTags =
+    !!displayClip &&
+    (displayClip.move_name || displayClip.style || displayClip.energy);
 
   return (
     <GestureDetector gesture={panGesture}>
       <View style={styles.container}>
         <Video
-          key={clip.local_id}
+          key={clip!.local_id}
           ref={videoRef}
-          source={{ uri: `https://stream.mux.com/${clip.mux_playback_id}.m3u8` }}
+          source={{ uri: `https://stream.mux.com/${clip!.mux_playback_id}.m3u8` }}
           style={StyleSheet.absoluteFill}
           useNativeControls={false}
           resizeMode="contain"
@@ -155,9 +281,14 @@ export default function ClipPlayerScreen() {
               <Text style={styles.controlBtnText}>−5s</Text>
             </TouchableOpacity>
             <TouchableOpacity onPress={handlePlayPause} style={styles.controlBtn}>
-              <Text style={styles.controlBtnText}>{playing ? 'Pause' : 'Play'}</Text>
+              <Text style={styles.controlBtnText}>
+                {playing ? 'Pause' : 'Play'}
+              </Text>
             </TouchableOpacity>
-            <TouchableOpacity onPress={handleSpeedToggle} style={styles.controlBtn}>
+            <TouchableOpacity
+              onPress={handleSpeedToggle}
+              style={styles.controlBtn}
+            >
               <Text style={styles.controlBtnText}>{rate}×</Text>
             </TouchableOpacity>
           </View>
@@ -167,13 +298,19 @@ export default function ClipPlayerScreen() {
           {showTags ? (
             <>
               {displayClip!.move_name ? (
-                <View style={styles.tagPill}><Text style={styles.tagPillText}>{displayClip!.move_name}</Text></View>
+                <View style={styles.tagPill}>
+                  <Text style={styles.tagPillText}>{displayClip!.move_name}</Text>
+                </View>
               ) : null}
               {displayClip!.style ? (
-                <View style={styles.tagPill}><Text style={styles.tagPillText}>{displayClip!.style}</Text></View>
+                <View style={styles.tagPill}>
+                  <Text style={styles.tagPillText}>{displayClip!.style}</Text>
+                </View>
               ) : null}
               {displayClip!.energy ? (
-                <View style={styles.tagPill}><Text style={styles.tagPillText}>{displayClip!.energy}</Text></View>
+                <View style={styles.tagPill}>
+                  <Text style={styles.tagPillText}>{displayClip!.energy}</Text>
+                </View>
               ) : null}
             </>
           ) : (

@@ -30,7 +30,7 @@ export default function SessionWorkspaceScreen() {
   const navigation = useNavigation();
   const { session } = useSession();
   const { musicTrack } = useMusicTrackStatus(id ?? null);
-  const { clips, refresh, updateLocalClip } = useClips(id ?? null);
+  const { clips, refresh, retryClip } = useClips(id ?? null);
   const shareSheetRef = useRef<BottomSheetRef | null>(null);
   const captureSheetRef = useRef<BottomSheetRef | null>(null);
   const tagSheetRef = useRef<BottomSheetRef | null>(null);
@@ -45,14 +45,12 @@ export default function SessionWorkspaceScreen() {
         const { sessionId, uri } = JSON.parse(raw) as { sessionId: string; uri: string };
         if (sessionId !== id) return;
         storage.delete(PENDING_CLIP_KEY);
-        saveClip(id, uri, 'Clip', session.access_token, undefined, (localId, updates) =>
-          updateLocalClip(localId, updates)
-        );
+        saveClip(id, uri, 'Clip', session.access_token);
         refresh();
       } catch {
         storage.delete(PENDING_CLIP_KEY);
       }
-    }, [id, session?.access_token, refresh, updateLocalClip])
+    }, [id, session?.access_token, refresh])
   );
 
   useLayoutEffect(() => {
@@ -126,13 +124,6 @@ export default function SessionWorkspaceScreen() {
     refresh();
   };
 
-  const retryUpload = (clip: ClipRow) => {
-    if (!id || !session?.access_token || !clip.file_uri) return;
-    saveClip(id, clip.file_uri, clip.label ?? 'Clip', session.access_token, clip.local_id, (localId, updates) =>
-      updateLocalClip(localId, updates)
-    );
-  };
-
   const handleRecord = () => {
     if (id) router.push({ pathname: './camera', params: { id } });
   };
@@ -146,10 +137,8 @@ export default function SessionWorkspaceScreen() {
     });
     if (result.canceled || !result.assets.length) return;
     const start = clips.length;
-    const onUpdate = (localId: string, updates: { upload_status?: string; upload_progress?: number }) =>
-      updateLocalClip(localId, updates);
     result.assets.forEach((asset, i) => {
-      saveClip(id, asset.uri, `Clip ${start + i + 1}`, session.access_token, undefined, onUpdate);
+      saveClip(id, asset.uri, `Clip ${start + i + 1}`, session.access_token);
     });
     refresh();
   };
@@ -172,7 +161,7 @@ export default function SessionWorkspaceScreen() {
             clip={item}
             onPress={() => openPlayer(index)}
             onLongPress={() => openTagSheet(item)}
-            onRetry={() => retryUpload(item)}
+            onRetry={() => retryClip(item.local_id)}
           />
         )}
       />

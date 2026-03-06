@@ -5,6 +5,7 @@ import {
   updateClipFromServer,
   type ClipRow,
 } from '../database';
+import { uploadQueue } from '../../services/uploadQueue';
 
 export function useClips(sessionId: string | null) {
   const [clips, setClips] = useState<ClipRow[]>([]);
@@ -16,6 +17,14 @@ export function useClips(sessionId: string | null) {
     }
     setClips(getClipsForSession(sessionId));
   }, [sessionId]);
+
+  const retryClip = useCallback(
+    (local_id: string) => {
+      uploadQueue.retryClip(local_id);
+      refresh();
+    },
+    [refresh]
+  );
 
   /** Update in-memory clip state for local upload progress/status (so cards show live %) */
   const updateLocalClip = useCallback(
@@ -144,5 +153,5 @@ export function useClips(sessionId: string | null) {
     };
   }, [sessionId]);
 
-  return { clips, refresh, updateLocalClip };
+  return { clips, refresh, retryClip, updateLocalClip };
 }

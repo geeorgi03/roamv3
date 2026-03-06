@@ -44,6 +44,14 @@ export default function HomeScreen() {
 
   useLayoutEffect(() => {
     navigation.setOptions({
+      headerLeft: () => (
+        <TouchableOpacity
+          style={styles.headerButton}
+          onPress={() => router.push('/library')}
+        >
+          <Text style={styles.headerLeftText}>Library</Text>
+        </TouchableOpacity>
+      ),
       headerRight: () => (
         <TouchableOpacity
           style={styles.headerButton}
@@ -114,6 +122,11 @@ const styles = StyleSheet.create({
   headerButtonText: {
     color: '#fff',
     fontSize: 24,
+  },
+  headerLeftText: {
+    color: '#fff',
+    fontSize: 14,
+    fontWeight: '700',
   },
   emptyList: {
     flex: 1,

@@ -10,6 +10,7 @@ export default function AppStackLayout() {
       }}
     >
       <Stack.Screen name="index" options={{ title: 'Roam' }} />
+      <Stack.Screen name="library" options={{ title: 'Library' }} />
       <Stack.Screen
         name="session/[id]"
         options={{

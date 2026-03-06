@@ -60,6 +60,11 @@ export function ClipCard({ clip, onPress, onLongPress, onRetry }: ClipCardProps)
               <Text style={styles.pillText}>local</Text>
             </View>
           )}
+          {clip.upload_status === 'queued' && (
+            <View style={styles.pill}>
+              <Text style={styles.pillText}>queued</Text>
+            </View>
+          )}
           {clip.upload_status === 'uploading' && (
             <View style={styles.pillRow}>
               <ActivityIndicator size="small" color={theme.textSecondary} />

@@ -1,12 +1,21 @@
-import { ActivityIndicator, StyleSheet, View } from 'react-native';
+import { AppState, ActivityIndicator, StyleSheet, View } from 'react-native';
+import { useEffect } from 'react';
 import { Redirect, Stack, usePathname } from 'expo-router';
 import Toast from 'react-native-toast-message';
 import { useSession } from '../lib/hooks/useSession';
 import { theme } from '../lib/theme';
+import { uploadQueue } from '../services/uploadQueue';
 
 export default function RootLayout() {
   const { session, loading } = useSession();
   const pathname = usePathname();
+
+  useEffect(() => {
+    const sub = AppState.addEventListener('change', (nextState) => {
+      if (nextState === 'active') uploadQueue.onAppForeground();
+    });
+    return () => sub.remove();
+  }, []);
 
   if (loading) {
     return (

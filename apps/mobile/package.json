@@ -18,6 +18,7 @@
     "@gorhom/bottom-sheet": "^4.6.0",
     "@roam/db": "workspace:*",
     "@roam/types": "workspace:*",
+    "@react-native-community/netinfo": "^11.0.0",
     "@react-native-community/slider": "^4.5.0",
     "@supabase/supabase-js": "^2.0.0",
     "expo": "~51.0.0",
