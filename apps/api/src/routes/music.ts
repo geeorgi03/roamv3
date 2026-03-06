@@ -44,11 +44,12 @@ app.post('/:id/music', async (c) => {
   const session = await getSessionForUser(sessionId, userId);
   if (!session) return c.json({ error: 'Not found' }, 404);
 
+  const gateRes = await checkMusicSegmentation(c, async () => {});
+  if (gateRes) return gateRes;
+
   const contentType = c.req.header('Content-Type') ?? '';
 
   if (contentType.includes('multipart/form-data')) {
-    const gateRes = await checkMusicSegmentation(c, async () => {});
-    if (gateRes) return gateRes;
     const formData = await c.req.formData();
     const file = formData.get('file');
     if (!file || !(file instanceof File)) {

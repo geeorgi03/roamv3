@@ -11,6 +11,7 @@ import { theme } from '../../lib/theme';
 import type { Session } from '@roam/types';
 import { useSession } from '../../lib/hooks/useSession';
 import { CreateSessionSheet } from '../../components/CreateSessionSheet';
+import { PaywallSheet } from '../../components/PaywallSheet';
 import BottomSheet, { type BottomSheetRef } from '@gorhom/bottom-sheet';
 
 const API_BASE = process.env.EXPO_PUBLIC_API_URL ?? 'http://localhost:3001';
@@ -19,6 +20,7 @@ export default function HomeScreen() {
   const navigation = useNavigation();
   const { session } = useSession();
   const createSheetRef = useRef<BottomSheetRef | null>(null);
+  const paywallSheetRef = useRef<BottomSheetRef | null>(null);
   const [sessions, setSessions] = useState<Session[]>([]);
   const [loading, setLoading] = useState(true);
 
@@ -113,7 +115,9 @@ export default function HomeScreen() {
       <CreateSessionSheet
         bottomSheetRef={createSheetRef}
         onCreated={handleCreated}
+        onPaywallRequired={() => paywallSheetRef.current?.snapToIndex(0)}
       />
+      <PaywallSheet bottomSheetRef={paywallSheetRef} />
     </View>
   );
 }

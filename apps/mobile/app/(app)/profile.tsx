@@ -9,6 +9,7 @@ import {
 import * as WebBrowser from 'expo-web-browser';
 import { theme } from '../../lib/theme';
 import { useSession } from '../../lib/hooks/useSession';
+import { supabase } from '../../lib/supabase';
 import type { Plan } from '@roam/types';
 
 const API_BASE = process.env.EXPO_PUBLIC_API_URL ?? 'http://localhost:3001';
@@ -39,6 +40,24 @@ export default function ProfileScreen() {
       }
     })();
   }, [session?.access_token]);
+
+  useEffect(() => {
+    const userId = session?.user?.id;
+    if (!userId) return;
+    const channel = supabase.channel(`profile-plan-${userId}`).on(
+      'postgres_changes',
+      { event: 'UPDATE', schema: 'public', table: 'users', filter: `id=eq.${userId}` },
+      (payload) => {
+        const planVal = (payload.new as { plan?: string | null })?.plan;
+        if (typeof planVal === 'string' && planVal.length > 0) {
+          setPlan(planVal as Plan);
+        }
+      }
+    ).subscribe();
+    return () => {
+      supabase.removeChannel(channel);
+    };
+  }, [session?.access_token, session?.user?.id]);
 
   const handleUpgrade = async () => {
     if (!session?.access_token) return;

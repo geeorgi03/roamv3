@@ -23,11 +23,13 @@ const defaultName = () =>
 export interface CreateSessionSheetProps {
   bottomSheetRef: React.RefObject<BottomSheetRef | null>;
   onCreated: (session: { id: string; name: string; created_at: string; user_id: string }) => void;
+  onPaywallRequired?: () => void;
 }
 
 export function CreateSessionSheet({
   bottomSheetRef,
   onCreated,
+  onPaywallRequired,
 }: CreateSessionSheetProps) {
   const { session } = useSession();
   const [name, setName] = useState(defaultName);
@@ -48,11 +50,16 @@ export function CreateSessionSheet({
         body: JSON.stringify({ name: name.trim() || defaultName() }),
       });
       const data = await res.json();
+      if (res.status === 403 && (data as { error?: string }).error === 'plan_limit_reached') {
+        bottomSheetRef.current?.close();
+        onPaywallRequired?.();
+        return;
+      }
       if (!res.ok) {
         throw new Error((data as { error?: string }).error ?? res.statusText);
       }
-      const session = data as { id: string; name: string; created_at: string; user_id: string };
-      onCreated(session);
+      const newSession = data as { id: string; name: string; created_at: string; user_id: string };
+      onCreated(newSession);
       bottomSheetRef.current?.close();
     } catch (e) {
       setError(e instanceof Error ? e.message : 'Failed to create session');

@@ -52,7 +52,6 @@ export default function SessionWorkspaceScreen() {
             storage.delete(PENDING_CLIP_KEY);
             refresh();
           }
-          // Non-plan error: local persistence failed; do not delete pending clip so user can retry
         } catch {
           // Invalid pending clip data; clear to avoid repeated failures
           storage.delete(PENDING_CLIP_KEY);

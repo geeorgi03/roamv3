@@ -28,6 +28,7 @@ export interface UploadQueueEvent {
   local_id: string;
   status?: UploadQueueStatus;
   progress?: number;
+  reason?: string;
 }
 
 type UploadQueueListener = (event: UploadQueueEvent) => void;
@@ -52,11 +53,14 @@ function emitUploadQueueEvent(event: UploadQueueEvent) {
   });
 }
 
-function updateClipStatusWithEvent(local_id: string, status: UploadQueueStatus, progress?: number) {
+function updateClipStatusWithEvent(local_id: string, status: UploadQueueStatus, progress?: number, reason?: string) {
   updateClipStatusDb(local_id, status, progress);
   const event: UploadQueueEvent = { local_id, status };
   if (typeof progress === 'number') {
     event.progress = progress;
+  }
+  if (typeof reason === 'string' && reason.length > 0) {
+    event.reason = reason;
   }
   emitUploadQueueEvent(event);
 }
@@ -202,6 +206,17 @@ export class UploadQueueService {
         const data = (await res.json()) as
           | { clip_id: string; upload_url: string; mux_upload_id?: string }
           | { error?: string };
+        if (res.status === 403 && 'error' in data && data.error === 'plan_limit_reached') {
+          const currentIdx = this._queue.findIndex((q) => q.local_id === item.local_id);
+          if (currentIdx >= 0) {
+            const current = this._queue[currentIdx];
+            current.status = 'failed';
+            setUploadQueue(this._queue);
+            updateClipStatusWithEvent(item.local_id, 'failed', undefined, 'plan_limit_reached');
+          }
+          this.processQueue();
+          return;
+        }
         if (!res.ok) {
           const errMsg = ('error' in data && data.error) || res.statusText;
           throw new Error(errMsg);
