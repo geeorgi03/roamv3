@@ -12,6 +12,29 @@
 export type ISODateTime = string;
 export type UUID = string;
 
+export type Plan = 'free' | 'creator' | 'pro' | 'studio';
+
+export interface User {
+  id: UUID;
+  email: string;
+  plan: Plan;
+  stripe_customer_id: string | null;
+  stripe_subscription_id: string | null;
+  created_at: ISODateTime;
+}
+
+/** ---- Plan & User (Tech Plan) ---- */
+export type Plan = 'free' | 'creator' | 'pro' | 'studio';
+
+export interface User {
+  id: UUID;
+  email: string;
+  plan: Plan;
+  stripe_customer_id: string | null;
+  stripe_subscription_id: string | null;
+  created_at: ISODateTime;
+}
+
 /** ---- UploadStatus (Tech Plan: string union for API/DB) ---- */
 export type UploadStatus =
   | 'local'

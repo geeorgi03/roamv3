@@ -1,6 +1,7 @@
 import { createHmac, timingSafeEqual } from 'node:crypto';
 import { Hono } from 'hono';
 import { supabase } from '../lib/supabase.js';
+import { stripe } from '../lib/stripe.js';
 
 function verifyMuxSignature(
   rawBody: string,
@@ -129,6 +130,61 @@ app.post('/mux', async (c) => {
       return c.json({ error: 'Database error', detail: updateError.message }, 503);
     }
     return c.json({ received: true }, 200);
+  }
+
+  return c.json({ received: true }, 200);
+});
+
+/** POST /stripe — Stripe webhook (signature-verified, no auth) */
+app.post('/stripe', async (c) => {
+  const rawBody = await c.req.raw.text();
+  const sig = c.req.header('stripe-signature') ?? '';
+  const secret = process.env.STRIPE_WEBHOOK_SECRET ?? '';
+  let event: { type: string; data?: { object?: Record<string, unknown> } };
+  try {
+    event = stripe.webhooks.constructEvent(rawBody, sig, secret) as typeof event;
+  } catch {
+    return c.json({ error: 'Invalid signature' }, 400);
+  }
+
+  const VALID_PLANS = ['free', 'creator', 'pro', 'studio'] as const;
+
+  function planFromSubscription(sub: Record<string, unknown>): string | null {
+    const items = sub.items as { data?: Array<{ price?: { metadata?: Record<string, string> } }> } | undefined;
+    const price = items?.data?.[0]?.price;
+    const plan = price?.metadata?.plan;
+    return typeof plan === 'string' && VALID_PLANS.includes(plan as (typeof VALID_PLANS)[number]) ? plan : null;
+  }
+
+  function customerIdFromSubscription(sub: Record<string, unknown>): string | null {
+    const cid = sub.customer;
+    return typeof cid === 'string' ? cid : null;
+  }
+
+  if (event.type === 'customer.subscription.created' || event.type === 'customer.subscription.updated') {
+    const sub = event.data?.object as Record<string, unknown> | undefined;
+    if (!sub) return c.json({ received: true }, 200);
+    const customerId = customerIdFromSubscription(sub);
+    const plan = planFromSubscription(sub);
+    const subId = sub.id as string | undefined;
+    if (!customerId || !plan || plan === 'free') return c.json({ received: true }, 200);
+    const { error } = await supabase
+      .from('users')
+      .update({ plan, stripe_subscription_id: subId ?? null })
+      .eq('stripe_customer_id', customerId);
+    if (error) return c.json({ error: error.message }, 503);
+  }
+
+  if (event.type === 'customer.subscription.deleted') {
+    const sub = event.data?.object as Record<string, unknown> | undefined;
+    if (!sub) return c.json({ received: true }, 200);
+    const customerId = customerIdFromSubscription(sub);
+    if (!customerId) return c.json({ received: true }, 200);
+    const { error } = await supabase
+      .from('users')
+      .update({ plan: 'free', stripe_subscription_id: null })
+      .eq('stripe_customer_id', customerId);
+    if (error) return c.json({ error: error.message }, 503);
   }
 
   return c.json({ received: true }, 200);

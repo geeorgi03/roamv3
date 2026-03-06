@@ -1,6 +1,7 @@
 import { Hono } from 'hono';
 import { requireAuth } from '../middleware/auth.js';
 import { supabase } from '../lib/supabase.js';
+import { checkClipLimit } from '../lib/planGate.js';
 
 const app = new Hono<{ Variables: { userId: string } }>().use(
   '*',
@@ -22,7 +23,7 @@ async function getSessionForUser(
 }
 
 /** POST /upload-url — get Mux Direct Upload URL; create clip row or reuse by (session_id, local_id) */
-app.post('/upload-url', async (c) => {
+app.post('/upload-url', checkClipLimit, async (c) => {
   const userId = c.get('userId');
 
   let body: {

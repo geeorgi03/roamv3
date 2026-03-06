@@ -8,9 +8,11 @@ import {
 } from 'react-native';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import * as DocumentPicker from 'expo-document-picker';
+import BottomSheet, { type BottomSheetRef } from '@gorhom/bottom-sheet';
 import { theme } from '../../../lib/theme';
 import { useSession } from '../../../lib/hooks/useSession';
 import { useMusicTrackStatus } from '../../../lib/hooks/useMusicTrackStatus';
+import { PaywallSheet } from '../../../components/PaywallSheet';
 import { useState, useEffect, useRef } from 'react';
 import type { MusicTrack } from '@roam/types';
 
@@ -27,6 +29,7 @@ export default function MusicSetupScreen() {
   const [error, setError] = useState<string | null>(null);
   const [localAnalysing, setLocalAnalysing] = useState(false);
   const hasNavigatedToBeatGrid = useRef(false);
+  const paywallSheetRef = useRef<BottomSheetRef | null>(null);
 
   // Clear local analysing when real status is known
   useEffect(() => {
@@ -76,6 +79,10 @@ export default function MusicSetupScreen() {
       });
       if (!res.ok) {
         const data = await res.json().catch(() => ({}));
+        if (res.status === 403 && (data as { error?: string }).error === 'plan_limit_reached') {
+          paywallSheetRef.current?.snapToIndex(0);
+          return;
+        }
         throw new Error((data as { error?: string }).error ?? res.statusText);
       }
       setLocalAnalysing(true);
@@ -108,6 +115,10 @@ export default function MusicSetupScreen() {
       });
       if (!res.ok) {
         const data = await res.json().catch(() => ({}));
+        if (res.status === 403 && (data as { error?: string }).error === 'plan_limit_reached') {
+          paywallSheetRef.current?.snapToIndex(0);
+          return;
+        }
         throw new Error((data as { error?: string }).error ?? res.statusText);
       }
       const data = (await res.json()) as { music_track_id: string };
@@ -172,6 +183,8 @@ export default function MusicSetupScreen() {
           <Text style={styles.analysingText}>Analysing track…</Text>
         </View>
       ) : null}
+
+      <PaywallSheet bottomSheetRef={paywallSheetRef} />
     </View>
   );
 }

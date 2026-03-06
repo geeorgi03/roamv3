@@ -17,8 +17,10 @@ import { ShareSheet } from '../../../components/ShareSheet';
 import { CaptureSheet } from '../../../components/CaptureSheet';
 import { ClipCard } from '../../../components/ClipCard';
 import { TagSheet } from '../../../components/TagSheet';
+import { PaywallSheet } from '../../../components/PaywallSheet';
 import { saveClip } from '../../../lib/saveClip';
 import { storage } from '../../../lib/storage';
+import { addUploadQueueListener } from '../../../services/uploadQueue';
 import type { ClipRow } from '../../../lib/database';
 
 const API_BASE = process.env.EXPO_PUBLIC_API_URL ?? 'http://localhost:3001';
@@ -34,6 +36,7 @@ export default function SessionWorkspaceScreen() {
   const shareSheetRef = useRef<BottomSheetRef | null>(null);
   const captureSheetRef = useRef<BottomSheetRef | null>(null);
   const tagSheetRef = useRef<BottomSheetRef | null>(null);
+  const paywallSheetRef = useRef<BottomSheetRef | null>(null);
   const [sessionName, setSessionName] = useState('Session');
   const [selectedClip, setSelectedClip] = useState<ClipRow | null>(null);
 
@@ -41,17 +44,33 @@ export default function SessionWorkspaceScreen() {
     useCallback(() => {
       const raw = storage.getString(PENDING_CLIP_KEY);
       if (!raw || !session?.access_token || !id) return;
-      try {
-        const { sessionId, uri } = JSON.parse(raw) as { sessionId: string; uri: string };
-        if (sessionId !== id) return;
-        storage.delete(PENDING_CLIP_KEY);
-        saveClip(id, uri, 'Clip', session.access_token);
-        refresh();
-      } catch {
-        storage.delete(PENDING_CLIP_KEY);
-      }
+      const run = async () => {
+        try {
+          const parsed = JSON.parse(raw) as { sessionId: string; uri: string };
+          if (parsed.sessionId !== id) return;
+          const result = await saveClip(id, parsed.uri, 'Clip', session.access_token);
+          if (result.ok) {
+            storage.delete(PENDING_CLIP_KEY);
+            refresh();
+          }
+          // Non-plan error: local persistence failed; do not delete pending clip so user can retry
+        } catch {
+          // Invalid pending clip data; clear to avoid repeated failures
+          storage.delete(PENDING_CLIP_KEY);
+        }
+      };
+      run();
     }, [id, session?.access_token, refresh])
   );
+
+  useLayoutEffect(() => {
+    const unsub = addUploadQueueListener((event) => {
+      if (event.reason === 'plan_limit_reached') {
+        paywallSheetRef.current?.snapToIndex(0);
+      }
+    });
+    return unsub;
+  }, []);
 
   useLayoutEffect(() => {
     if (id) {
@@ -137,9 +156,14 @@ export default function SessionWorkspaceScreen() {
     });
     if (result.canceled || !result.assets.length) return;
     const start = clips.length;
-    result.assets.forEach((asset, i) => {
-      saveClip(id, asset.uri, `Clip ${start + i + 1}`, session.access_token);
-    });
+    for (let i = 0; i < result.assets.length; i++) {
+      const asset = result.assets[i];
+      const saveResult = await saveClip(id, asset.uri, `Clip ${start + i + 1}`, session.access_token);
+      if (saveResult.ok === false) {
+        // Non-plan error: local persistence failed; stop adding more
+        break;
+      }
+    }
     refresh();
   };
 
@@ -199,6 +223,7 @@ export default function SessionWorkspaceScreen() {
         onSaved={handleTagSaved}
         musicTrackBpm={musicTrack?.bpm ?? null}
       />
+      <PaywallSheet bottomSheetRef={paywallSheetRef} onDismiss={refresh} />
     </View>
   );
 }

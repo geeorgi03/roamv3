@@ -1,6 +1,7 @@
 import { Hono } from 'hono';
 import { requireAuth } from '../middleware/auth.js';
 import { supabase } from '../lib/supabase.js';
+import { checkSessionLimit } from '../lib/planGate.js';
 import type { Session, MusicTrack, Clip } from '@roam/types';
 
 const app = new Hono<{ Variables: { userId: string } }>()
@@ -22,7 +23,7 @@ app.get('/', async (c) => {
 });
 
 /** POST /sessions — create a session */
-app.post('/', async (c) => {
+app.post('/', checkSessionLimit, async (c) => {
   const userId = c.get('userId');
   const body = await c.req.json<{ name?: string }>();
   const name = typeof body?.name === 'string' ? body.name.trim() || 'Untitled Session' : 'Untitled Session';

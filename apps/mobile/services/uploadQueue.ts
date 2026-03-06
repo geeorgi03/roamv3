@@ -28,6 +28,8 @@ export interface UploadQueueEvent {
   local_id: string;
   status?: UploadQueueStatus;
   progress?: number;
+  /** Emitted when upload fails due to plan limit; UI should surface paywall */
+  reason?: 'plan_limit_reached';
 }
 
 type UploadQueueListener = (event: UploadQueueEvent) => void;
@@ -85,11 +87,33 @@ export class UploadQueueService {
       interrupted.forEach((local_id) => updateClipStatusWithEvent(local_id, 'queued'));
     }
 
+    const now = Date.now();
+    const dueForRetry: string[] = [];
+    for (const item of this._queue) {
+      if (item.status !== 'queued' || item.next_retry_at == null) continue;
+      if (item.next_retry_at > now) {
+        this._scheduleRetry(item);
+      } else {
+        item.next_retry_at = undefined;
+        dueForRetry.push(item.local_id);
+      }
+    }
+    if (dueForRetry.length > 0) {
+      setUploadQueue(this._queue);
+    }
+
     NetInfo.addEventListener((state) => {
       const connected = state.isConnected === true;
       this._isConnected = connected;
       if (connected) this.processQueue();
       else this._pauseAll();
+    });
+
+    void NetInfo.fetch().then((state) => {
+      this._isConnected = state.isConnected === true;
+      if (dueForRetry.length > 0 && state.isConnected === true) {
+        this.processQueue();
+      }
     });
   }
 
@@ -155,11 +179,14 @@ export class UploadQueueService {
     if (this._isConnected === false) return;
 
     try {
-      const urls = getTusUrls();
-      const storedUrl = urls[item.local_id];
+      const storedUrl = getTusUrls()[item.local_id];
+      const itemUrl = item.tus_upload_url;
 
       if (storedUrl) {
         item.tus_upload_url = storedUrl;
+      } else if (itemUrl) {
+        item.tus_upload_url = itemUrl;
+        setTusUrls({ ...getTusUrls(), [item.local_id]: itemUrl });
       } else {
         const res = await fetch(`${API_BASE}/clips/upload-url`, {
           method: 'POST',
@@ -178,7 +205,14 @@ export class UploadQueueService {
           | { clip_id: string; upload_url: string; mux_upload_id?: string }
           | { error?: string };
         if (!res.ok) {
-          throw new Error(('error' in data && data.error) || res.statusText);
+          const errMsg = ('error' in data && data.error) || res.statusText;
+          const planLimit =
+            res.status === 403 &&
+            'error' in data &&
+            (data as { error?: string }).error === 'plan_limit_reached';
+          const err = new Error(errMsg) as Error & { planLimit?: boolean };
+          err.planLimit = planLimit;
+          throw err;
         }
 
         const clip_id = (data as { clip_id: string }).clip_id;
@@ -190,7 +224,7 @@ export class UploadQueueService {
         item.mux_upload_id = mux_upload_id;
 
         updateClipServerData(item.local_id, clip_id);
-        setTusUrls({ ...urls, [item.local_id]: upload_url });
+        setTusUrls({ ...getTusUrls(), [item.local_id]: upload_url });
       }
 
       item.status = 'uploading';
@@ -229,6 +263,25 @@ export class UploadQueueService {
           'name' in error &&
           (error as { name?: string | undefined }).name === 'UploadAbortedError');
 
+      const isPlanLimit =
+        error &&
+        typeof error === 'object' &&
+        'planLimit' in error &&
+        (error as { planLimit?: boolean }).planLimit === true;
+
+      if (isPlanLimit) {
+        current.status = 'failed';
+        setUploadQueue(this._queue);
+        updateClipStatusWithEvent(current.local_id, 'failed');
+        emitUploadQueueEvent({
+          local_id: current.local_id,
+          status: 'failed',
+          reason: 'plan_limit_reached',
+        });
+        this.processQueue();
+        return;
+      }
+
       if (isAbort) {
         if (current.status === 'uploading') {
           current.status = 'queued';
@@ -236,6 +289,7 @@ export class UploadQueueService {
           setUploadQueue(this._queue);
           updateClipStatusWithEvent(current.local_id, 'queued');
         }
+        this.processQueue();
         return;
       }
 
@@ -254,6 +308,7 @@ export class UploadQueueService {
         setUploadQueue(this._queue);
         updateClipStatusWithEvent(current.local_id, 'failed');
       }
+      this.processQueue();
     }
   }
 

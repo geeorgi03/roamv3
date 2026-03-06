@@ -1,6 +1,7 @@
 import { Hono } from 'hono';
 import { requireAuth } from '../middleware/auth.js';
 import { supabase } from '../lib/supabase.js';
+import { checkMusicSegmentation } from '../lib/planGate.js';
 import type { MusicTrack, SectionEntry } from '@roam/types';
 
 const app = new Hono<{ Variables: { userId: string } }>()
@@ -37,7 +38,7 @@ const MIME_TO_EXT: Record<string, string> = {
 const YOUTUBE_URL_REGEX = /^(https?:\/\/)?(www\.)?(youtube\.com\/watch\?v=|youtu\.be\/)[\w-]+/;
 
 /** POST /sessions/:id/music — upload file or submit YouTube URL */
-app.post('/:id/music', async (c) => {
+app.post('/:id/music', checkMusicSegmentation, async (c) => {
   const userId = c.get('userId');
   const sessionId = c.req.param('id');
   const session = await getSessionForUser(sessionId, userId);
