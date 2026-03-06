@@ -4,7 +4,7 @@
     "strict": true,
     "baseUrl": ".",
     "paths": {
-      "@roam/db": ["../../packages/db/src"],
+      "@roam/db": ["../../packages/db/dist"],
       "@roam/types": ["../../packages/types/src"]
     }
   },

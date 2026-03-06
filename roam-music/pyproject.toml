@@ -13,3 +13,6 @@ dependencies = [
   "supabase>=2.0.0",
   "python-dotenv>=1.0.0",
 ]
+
+[tool.hatch.build.targets.wheel]
+py-modules = ["main"]

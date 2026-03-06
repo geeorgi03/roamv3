@@ -9,12 +9,19 @@ export function useSession() {
   useEffect(() => {
     let mounted = true;
 
-    supabase.auth.getSession().then(({ data: { session: s } }) => {
-      if (mounted) {
-        setSession(s);
-        setLoading(false);
-      }
-    });
+    supabase.auth
+      .getSession()
+      .then(({ data: { session: s } }) => {
+        if (mounted) setSession(s);
+      })
+      .catch((err) => {
+        if (__DEV__) {
+          console.warn('[useSession] Hydration error:', err);
+        }
+      })
+      .finally(() => {
+        if (mounted) setLoading(false);
+      });
 
     const {
       data: { subscription },

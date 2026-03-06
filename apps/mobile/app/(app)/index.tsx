@@ -1,14 +1,19 @@
 import { View, Text, StyleSheet, TouchableOpacity } from 'react-native';
+import { router } from 'expo-router';
 import { theme } from '../../lib/theme';
 
 export default function HomeScreen() {
   return (
     <View style={styles.container}>
-      <View style={styles.empty}>
+      <TouchableOpacity
+        style={styles.empty}
+        onPress={() => router.push('/session/new')}
+        activeOpacity={0.8}
+      >
         <Text style={styles.icon}>📋</Text>
         <Text style={styles.title}>No sessions yet</Text>
         <Text style={styles.subtitle}>Start your first session</Text>
-      </View>
+      </TouchableOpacity>
       {/* TODO: render sessions list (T6) */}
     </View>
   );

@@ -1,12 +1,5 @@
 import * as SecureStore from 'expo-secure-store';
-import { createClient } from '@supabase/supabase-js';
-
-const url = process.env.EXPO_PUBLIC_SUPABASE_URL;
-const anonKey = process.env.EXPO_PUBLIC_SUPABASE_ANON_KEY;
-
-if (!url || !anonKey) {
-  throw new Error('Missing EXPO_PUBLIC_SUPABASE_URL or EXPO_PUBLIC_SUPABASE_ANON_KEY');
-}
+import { createSupabaseClientFromExpoEnv } from '@roam/db';
 
 const secureStorage = {
   getItem: async (key: string) => {
@@ -20,7 +13,7 @@ const secureStorage = {
   },
 };
 
-export const supabase = createClient(url, anonKey, {
+export const supabase = createSupabaseClientFromExpoEnv({
   auth: {
     storage: secureStorage,
     autoRefreshToken: true,

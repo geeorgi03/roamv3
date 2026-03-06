@@ -1,4 +1,4 @@
-import { Stack } from 'expo-router';
+import { Stack, router } from 'expo-router';
 import { TouchableOpacity, Text, StyleSheet } from 'react-native';
 
 export default function AppStackLayout() {
@@ -15,7 +15,10 @@ export default function AppStackLayout() {
         options={{
           title: 'Roam',
           headerRight: () => (
-            <TouchableOpacity style={styles.headerButton}>
+            <TouchableOpacity
+              style={styles.headerButton}
+              onPress={() => router.push('/session/new')}
+            >
               <Text style={styles.headerButtonText}>+</Text>
             </TouchableOpacity>
           ),
