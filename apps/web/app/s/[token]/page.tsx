@@ -43,6 +43,19 @@ export default async function SharedSessionPage({
     clips: Clip[];
   };
 
+  const sessionId = session.id;
+  const { data: openFeedback } =
+    sessionId != null
+      ? await supabase
+          .from('feedback_requests')
+          .select('clip_id')
+          .eq('session_id', sessionId)
+          .eq('status', 'open')
+      : { data: [] };
+  const openFeedbackClipIds = new Set(
+    (openFeedback ?? []).map((r: { clip_id: string }) => r.clip_id)
+  );
+
   let uploadedAudioUrl: string | null = null;
   if (
     music_track?.source_type === 'upload' &&
@@ -144,6 +157,8 @@ export default async function SharedSessionPage({
                     energy: clip.energy,
                     difficulty: clip.difficulty,
                   }}
+                  feedbackOpen={openFeedbackClipIds.has(clip.id)}
+                  clipId={clip.id}
                 />
               ) : clip.upload_status === 'processing' ? (
                 <div
