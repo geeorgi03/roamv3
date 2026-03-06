@@ -7,15 +7,33 @@ def _utc_now_iso() -> str:
     return datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
 
 
-def _requeue_timeout_at() -> str:
-    """Return UTC ISO string 5 minutes from now for requeued jobs."""
-    return (datetime.now(timezone.utc) + timedelta(minutes=5)).isoformat().replace(
-        "+00:00", "Z"
+def compute_requeue_timeout_at(job: dict) -> str:
+    """
+    Compute timeout_at for requeued jobs, preserving the original adaptive window.
+
+    Derives window length from the prior claim interval (timeout_at - claimed_at)
+    and reapplies it from now. Falls back to 5 minutes for legacy rows without
+    claimed_at/timeout_at. Central policy for both timeout and lease-recovery paths.
+    """
+    claimed_at = job.get("claimed_at")
+    timeout_at = job.get("timeout_at")
+    if claimed_at and timeout_at:
+        try:
+            claimed = datetime.fromisoformat(claimed_at.replace("Z", "+00:00"))
+            timeout = datetime.fromisoformat(timeout_at.replace("Z", "+00:00"))
+            window_seconds = (timeout - claimed).total_seconds()
+            if window_seconds > 0:
+                new_timeout = datetime.now(timezone.utc) + timedelta(
+                    seconds=window_seconds
+                )
+                return new_timeout.isoformat().replace("+00:00", "Z")
+        except (ValueError, TypeError):
+            pass
+    return (
+        (datetime.now(timezone.utc) + timedelta(minutes=5))
+        .isoformat()
+        .replace("+00:00", "Z")
     )
-
-
-# Shared policy for claim and requeue; matches claim_analysis_job timeout window.
-_future_timeout_iso = _requeue_timeout_at
 
 
 def write_success(supabase_client: Any, job: dict, result: dict) -> None:
@@ -83,23 +101,28 @@ def write_timeout_requeue(supabase_client: Any, job: dict) -> None:
                 {
                     "status": "pending",
                     "attempt_count": attempt_count + 1,
-                    "timeout_at": _requeue_timeout_at(),
+                    "timeout_at": compute_requeue_timeout_at(job),
                     "claimed_at": None,
                     "lease_expires_at": None,
                 }
             ).eq("id", job_id).eq("status", "processing").execute()
         else:
-            supabase_client.table("analysis_jobs").update(
-                {
-                    "status": "failed",
-                    "attempt_count": attempt_count + 1,
-                    "error": "Job timeout exceeded; max retries exceeded",
-                }
-            ).eq("id", job_id).execute()
-            music_track_id = job.get("music_track_id")
-            if music_track_id is not None:
+            resp = (
+                supabase_client.table("analysis_jobs")
+                .update(
+                    {
+                        "status": "failed",
+                        "attempt_count": attempt_count + 1,
+                        "error": "Job timeout exceeded; max retries exceeded",
+                    }
+                )
+                .eq("id", job_id)
+                .eq("status", "processing")
+                .execute()
+            )
+            if resp.data and len(resp.data) > 0 and job.get("music_track_id"):
                 supabase_client.table("music_tracks").update(
                     {"analysis_status": "failed"}
-                ).eq("id", music_track_id).execute()
+                ).eq("id", job["music_track_id"]).execute()
     except Exception:
         logging.exception("write_timeout_requeue failed")

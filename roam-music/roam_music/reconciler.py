@@ -2,7 +2,7 @@ import logging
 from datetime import datetime, timezone
 from typing import Any
 
-from roam_music.writer import _requeue_timeout_at
+from roam_music.writer import compute_requeue_timeout_at
 
 
 def reconcile_expired_leases(supabase_client: Any) -> None:
@@ -43,7 +43,7 @@ def reconcile_expired_leases(supabase_client: Any) -> None:
                             {
                                 "status": "pending",
                                 "attempt_count": attempt_count + 1,
-                                "timeout_at": _requeue_timeout_at(),
+                                "timeout_at": compute_requeue_timeout_at(row),
                                 "claimed_at": None,
                                 "lease_expires_at": None,
                             }
@@ -63,7 +63,7 @@ def reconcile_expired_leases(supabase_client: Any) -> None:
                     )
             else:
                 try:
-                    (
+                    resp = (
                         supabase_client.table("analysis_jobs")
                         .update(
                             {
@@ -73,10 +73,11 @@ def reconcile_expired_leases(supabase_client: Any) -> None:
                             }
                         )
                         .eq("id", job_id)
+                        .eq("status", "processing")
                         .execute()
                     )
 
-                    if music_track_id is not None:
+                    if resp.data and len(resp.data) > 0 and music_track_id is not None:
                         (
                             supabase_client.table("music_tracks")
                             .update({"analysis_status": "failed"})
