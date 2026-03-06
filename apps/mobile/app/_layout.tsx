@@ -1,5 +1,6 @@
 import { ActivityIndicator, StyleSheet, View } from 'react-native';
 import { Redirect, Stack, usePathname } from 'expo-router';
+import Toast from 'react-native-toast-message';
 import { useSession } from '../lib/hooks/useSession';
 import { theme } from '../lib/theme';
 
@@ -19,14 +20,24 @@ export default function RootLayout() {
     if (pathname && !pathname.startsWith('/auth')) {
       return <Redirect href="/auth/sign-in" />;
     }
-    return <Stack />;
+    return (
+      <>
+        <Stack />
+        <Toast />
+      </>
+    );
   }
 
   if (pathname?.startsWith('/auth')) {
     return <Redirect href="/(app)" />;
   }
 
-  return <Stack />;
+  return (
+    <>
+      <Stack />
+      <Toast />
+    </>
+  );
 }
 
 const styles = StyleSheet.create({

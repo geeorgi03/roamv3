@@ -28,11 +28,6 @@ export default function AppStackLayout() {
         name="session/[id]"
         options={{
           title: 'New Session',
-          headerRight: () => (
-            <TouchableOpacity style={styles.headerButton}>
-              <Text style={styles.headerButtonText}>⎘</Text>
-            </TouchableOpacity>
-          ),
         }}
       />
     </Stack>

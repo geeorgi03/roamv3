@@ -8,8 +8,8 @@ export function useShare(sessionId: string) {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  const share = useCallback(async () => {
-    if (!sessionId) return;
+  const share = useCallback(async (): Promise<string | null> => {
+    if (!sessionId) return null;
     setLoading(true);
     setError(null);
     try {
@@ -17,7 +17,7 @@ export function useShare(sessionId: string) {
       const token = session?.access_token;
       if (!token) {
         setError('Not signed in');
-        return;
+        return null;
       }
       const res = await fetch(`${API_BASE}/sessions/${sessionId}/share`, {
         method: 'POST',
@@ -29,12 +29,14 @@ export function useShare(sessionId: string) {
       if (!res.ok) {
         const body = await res.json().catch(() => ({}));
         setError((body as { error?: string }).error ?? 'Failed to create share link');
-        return;
+        return null;
       }
       const body = (await res.json()) as { url: string };
       setShareUrl(body.url);
+      return body.url;
     } catch (e) {
       setError(e instanceof Error ? e.message : 'Network error');
+      return null;
     } finally {
       setLoading(false);
     }

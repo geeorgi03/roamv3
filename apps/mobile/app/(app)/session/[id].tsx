@@ -1,12 +1,30 @@
 import { View, Text, StyleSheet, TouchableOpacity, Alert } from 'react-native';
-import { useLocalSearchParams, useRouter } from 'expo-router';
+import { useLocalSearchParams, useRouter, useNavigation } from 'expo-router';
+import { useLayoutEffect, useRef } from 'react';
 import { theme } from '../../../lib/theme';
 import { useMusicTrackStatus } from '../../../lib/hooks/useMusicTrackStatus';
+import BottomSheet, { type BottomSheetRef } from '@gorhom/bottom-sheet';
+import { ShareSheet } from '../../../components/ShareSheet';
 
 export default function SessionWorkspaceScreen() {
   const { id } = useLocalSearchParams<{ id: string }>();
   const router = useRouter();
+  const navigation = useNavigation();
   const { musicTrack } = useMusicTrackStatus(id ?? null);
+  const shareSheetRef = useRef<BottomSheetRef | null>(null);
+
+  useLayoutEffect(() => {
+    navigation.setOptions({
+      headerRight: () => (
+        <TouchableOpacity
+          style={styles.headerButton}
+          onPress={() => shareSheetRef.current?.snapToIndex(0)}
+        >
+          <Text style={styles.headerButtonText}>⎘</Text>
+        </TouchableOpacity>
+      ),
+    });
+  }, [navigation]);
 
   const handleMusicPress = () => {
     if (!id) return;
@@ -56,6 +74,13 @@ export default function SessionWorkspaceScreen() {
       >
         <Text style={styles.fabIcon}>+</Text>
       </TouchableOpacity>
+      <ShareSheet
+        sessionId={id ?? ''}
+        sessionName="Session"
+        hasMusic={!!musicTrack}
+        untaggedClipCount={0}
+        bottomSheetRef={shareSheetRef}
+      />
     </View>
   );
 }
@@ -64,6 +89,14 @@ const styles = StyleSheet.create({
   container: {
     flex: 1,
     backgroundColor: theme.background,
+  },
+  headerButton: {
+    padding: 8,
+    marginRight: 8,
+  },
+  headerButtonText: {
+    color: '#fff',
+    fontSize: 24,
   },
   placeholder: {
     flex: 1,

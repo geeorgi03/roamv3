@@ -55,12 +55,13 @@ app.delete('/:id/share', async (c) => {
   const session = await getSessionForUser(id, userId);
   if (!session) return c.json({ error: 'Not found' }, 404);
 
-  await supabase
+  const { error } = await supabase
     .from('share_tokens')
     .update({ revoked_at: new Date().toISOString() })
     .eq('session_id', id)
     .is('revoked_at', null);
 
+  if (error) return c.json({ error: error.message }, 500);
   return c.body(null, 204);
 });
 

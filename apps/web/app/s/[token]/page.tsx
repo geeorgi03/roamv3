@@ -120,7 +120,7 @@ export default async function SharedSessionPage({
                   key={clip.id}
                   playbackId={clip.mux_playback_id}
                   thumbnailUrl={`https://image.mux.com/${clip.mux_playback_id}/thumbnail.jpg`}
-                  label={clip.label}
+                  label={clip.move_name ?? clip.label}
                   tags={{
                     style: clip.style,
                     energy: clip.energy,
