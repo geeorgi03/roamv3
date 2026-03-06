@@ -4,6 +4,8 @@ import type { Session, Clip, MusicTrack, SectionEntry } from '@roam/types';
 import { ClipPlayer } from './ClipPlayer';
 import { MusicPlayer } from './MusicPlayer';
 
+export const dynamic = 'force-dynamic';
+
 function formatSectionTime(startMs: number): string {
   const totalSec = Math.floor(startMs / 1000);
   const m = Math.floor(totalSec / 60);
@@ -77,7 +79,7 @@ export default async function SharedSessionPage({
             music_track?.analysis_status === 'complete' &&
             uploadedAudioUrl && (
               <>
-                <MusicPlayer src={uploadedAudioUrl} />
+                <MusicPlayer src={uploadedAudioUrl!} />
                 <div className="mt-2 flex flex-wrap gap-2">
                   {sections?.map((section, i) => (
                     <span
