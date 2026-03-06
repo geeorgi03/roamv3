@@ -1,6 +1,7 @@
 import { Hono } from 'hono';
 import { requireAuth } from '../middleware/auth.js';
 import { supabase } from '../lib/supabase.js';
+import { evaluateClipLimit } from '../lib/planGate.js';
 import type { Clip } from '@roam/types';
 
 const app = new Hono<{ Variables: { userId: string } }>()
@@ -40,6 +41,9 @@ app.post('/:sessionId/clips', async (c) => {
   const sessionId = c.req.param('sessionId');
   const session = await getSessionForUser(sessionId, userId);
   if (!session) return c.json({ error: 'Not found' }, 404);
+
+  const limitResult = await evaluateClipLimit(userId);
+  if (!limitResult.allowed) return c.json(limitResult.body, limitResult.status);
 
   const body = await c.req.json<{
     local_id: string;

@@ -18,39 +18,53 @@ async function getPlan(userId: string): Promise<{ plan: string | null; error?: R
   return { plan: data?.plan ?? null };
 }
 
-export async function checkClipLimit(c: Context, next: Next) {
-  const userId = c.get('userId');
+export type ClipLimitResult =
+  | { allowed: true }
+  | { allowed: false; status: 403; body: { error: 'plan_limit_reached'; upgrade_url: string } }
+  | { allowed: false; status: 500; body: { error: string } };
+
+/** Returns whether the user is capped plus upgrade metadata. Call when session ownership is already validated. */
+export async function evaluateClipLimit(userId: string): Promise<ClipLimitResult> {
   const planResult = await getPlan(userId);
-  if (planResult.error) return planResult.error;
+  if (planResult.error) {
+    return { allowed: false, status: 500, body: { error: 'Failed to fetch plan' } };
+  }
   const plan = planResult.plan;
-  if (plan && plan !== 'free') return next();
+  if (plan && plan !== 'free') return { allowed: true };
 
   const { data: sessions, error: sessionsError } = await supabase
     .from('sessions')
     .select('id')
     .eq('user_id', userId);
   if (sessionsError) {
-    return c.json({ error: 'Failed to evaluate clip limit' }, 500);
+    return { allowed: false, status: 500, body: { error: 'Failed to evaluate clip limit' } };
   }
   const sessionIds = sessions?.map((s) => s.id) ?? [];
-  if (sessionIds.length === 0) {
-    return next();
-  }
+  if (sessionIds.length === 0) return { allowed: true };
+
   const { count, error: countError } = await supabase
     .from('clips')
     .select('*', { count: 'exact', head: true })
     .in('session_id', sessionIds);
   if (countError) {
-    return c.json({ error: 'Failed to evaluate clip limit' }, 500);
+    return { allowed: false, status: 500, body: { error: 'Failed to evaluate clip limit' } };
   }
   const clipCount = count ?? 0;
   if (clipCount >= 20) {
-    return c.json(
-      { error: 'plan_limit_reached', upgrade_url: UPGRADE_URL },
-      403
-    );
+    return {
+      allowed: false,
+      status: 403,
+      body: { error: 'plan_limit_reached', upgrade_url: UPGRADE_URL },
+    };
   }
-  return next();
+  return { allowed: true };
+}
+
+export async function checkClipLimit(c: Context, next: Next) {
+  const userId = c.get('userId');
+  const result = await evaluateClipLimit(userId);
+  if (result.allowed) return next();
+  return c.json(result.body, result.status);
 }
 
 export async function checkSessionLimit(c: Context, next: Next) {
