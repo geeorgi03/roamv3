@@ -1,6 +1,6 @@
 {
   "name": "@roam/mobile",
-  "version": "0.0.1",
+  "version": "0.1.0",
   "private": true,
   "main": "expo-router/entry",
   "scripts": {
@@ -43,6 +43,7 @@
   },
   "devDependencies": {
     "@babel/core": "^7.24.0",
+    "@napi-rs/canvas": "^0.1.44",
     "jimp": "^0.22.12",
     "@types/node": "^20.0.0",
     "@types/react": "~18.2.79",
