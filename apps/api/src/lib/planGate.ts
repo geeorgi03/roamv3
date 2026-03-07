@@ -3,6 +3,16 @@ import { supabase } from './supabase.js';
 
 const UPGRADE_URL = 'https://roamdance.com/pricing';
 
+/**
+ * TEMPORARY BETA UNLOCK: When ROAM_BETA_UNLOCK=true, all plan gates are bypassed.
+ * Set in .env to allow beta testers full access without paywall/quota limits.
+ * To re-enable freemium: remove or set ROAM_BETA_UNLOCK=false and restart the API.
+ */
+function isBetaUnlockEnabled(): boolean {
+  const v = process.env.ROAM_BETA_UNLOCK;
+  return v === 'true' || v === '1';
+}
+
 async function getPlan(userId: string): Promise<{ plan: string | null; error?: Response }> {
   const { data, error } = await supabase
     .from('users')
@@ -25,6 +35,7 @@ export type ClipLimitResult =
 
 /** Returns whether the user is capped plus upgrade metadata. Call when session ownership is already validated. */
 export async function evaluateClipLimit(userId: string): Promise<ClipLimitResult> {
+  if (isBetaUnlockEnabled()) return { allowed: true };
   const planResult = await getPlan(userId);
   if (planResult.error) {
     return { allowed: false, status: 500, body: { error: 'Failed to fetch plan' } };
@@ -69,6 +80,7 @@ export async function checkClipLimit(c: Context, next: Next) {
 
 export async function checkSessionLimit(c: Context, next: Next) {
   const userId = c.get('userId');
+  if (isBetaUnlockEnabled()) return next();
   const planResult = await getPlan(userId);
   if (planResult.error) return planResult.error;
   const plan = planResult.plan;
@@ -93,6 +105,7 @@ export async function checkSessionLimit(c: Context, next: Next) {
 
 export async function checkMusicSegmentation(c: Context, next: Next) {
   const userId = c.get('userId');
+  if (isBetaUnlockEnabled()) return next();
   const planResult = await getPlan(userId);
   if (planResult.error) return planResult.error;
   const plan = planResult.plan;
