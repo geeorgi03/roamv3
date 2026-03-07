@@ -18,17 +18,31 @@
       "adaptiveIcon": {
         "foregroundImage": "./assets/adaptive-icon.png",
         "backgroundColor": "#111111"
-      }
+      },
+      "permissions": [
+        "android.permission.CAMERA",
+        "android.permission.RECORD_AUDIO"
+      ]
     },
     "plugins": [
       [
         "expo-router",
-        { "root": "app" }
+        {
+          "root": "app"
+        }
       ],
       "expo-secure-store",
-      "expo-sqlite",
       "expo-camera",
       "expo-image-picker"
-    ]
+    ],
+    "extra": {
+      "router": {
+        "origin": false,
+        "root": "app"
+      },
+      "eas": {
+        "projectId": "96524f01-8def-413a-822f-37d1bcd21cbc"
+      }
+    }
   }
 }

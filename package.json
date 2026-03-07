@@ -20,6 +20,11 @@
     "node": ">=20"
   },
   "pnpm": {
+    "overrides": {
+      "expo-constants": "16.0.2",
+      "expo-linking": "6.3.1",
+      "react-native-screens": "3.31.1"
+    },
     "patchedDependencies": {
       "expo-sqlite@14.0.6": "patches/expo-sqlite@14.0.6.patch",
       "expo-modules-core@1.12.26": "patches/expo-modules-core@1.12.26.patch"

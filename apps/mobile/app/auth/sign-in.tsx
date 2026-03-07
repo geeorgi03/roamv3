@@ -104,12 +104,11 @@ const styles = StyleSheet.create({
     marginBottom: 16,
   },
   button: {
-    backgroundColor: theme.accent,
+    backgroundColor: '#2a7c6f',
     borderRadius: theme.borderRadius,
     padding: 16,
     alignItems: 'center',
-    borderWidth: 1,
-    borderColor: theme.textSecondary,
+    borderWidth: 0,
   },
   buttonDisabled: {
     opacity: 0.6,
