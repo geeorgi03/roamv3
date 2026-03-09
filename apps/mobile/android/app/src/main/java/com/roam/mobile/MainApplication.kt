@@ -28,7 +28,9 @@ class MainApplication : Application(), ReactApplication {
 
           override fun getJSMainModuleName(): String = ".expo/.virtual-metro-entry"
 
-          override fun getUseDeveloperSupport(): Boolean = BuildConfig.DEBUG
+          // PREVIEW DIAGNOSTIC: always show the red error overlay so crashes are visible
+          // instead of a silent white screen. Revert to BuildConfig.DEBUG before production.
+          override fun getUseDeveloperSupport(): Boolean = true
 
           override val isNewArchEnabled: Boolean = BuildConfig.IS_NEW_ARCHITECTURE_ENABLED
           override val isHermesEnabled: Boolean = BuildConfig.IS_HERMES_ENABLED
