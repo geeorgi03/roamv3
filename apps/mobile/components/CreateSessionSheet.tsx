@@ -7,7 +7,7 @@ import {
   TextInput,
   ActivityIndicator,
 } from 'react-native';
-import BottomSheet, { type BottomSheetRef } from '@gorhom/bottom-sheet';
+import BottomSheet, { type BottomSheetMethods } from '@gorhom/bottom-sheet';
 import { theme } from '../lib/theme';
 import { useSession } from '../lib/hooks/useSession';
 
@@ -21,7 +21,7 @@ const defaultName = () =>
   });
 
 export interface CreateSessionSheetProps {
-  bottomSheetRef: React.RefObject<BottomSheetRef | null>;
+  bottomSheetRef: React.RefObject<BottomSheetMethods | null>;
   onCreated: (session: { id: string; name: string; created_at: string; user_id: string }) => void;
   onPaywallRequired?: () => void;
 }

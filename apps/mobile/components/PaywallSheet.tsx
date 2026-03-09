@@ -6,7 +6,7 @@ import {
   TouchableOpacity,
   ActivityIndicator,
 } from 'react-native';
-import BottomSheet, { type BottomSheetRef } from '@gorhom/bottom-sheet';
+import BottomSheet, { type BottomSheetMethods } from '@gorhom/bottom-sheet';
 import * as WebBrowser from 'expo-web-browser';
 import { theme } from '../lib/theme';
 import { useSession } from '../lib/hooks/useSession';
@@ -15,7 +15,7 @@ const API_BASE = process.env.EXPO_PUBLIC_API_URL ?? 'http://localhost:3001';
 const SUCCESS_URL = 'https://roamdance.com/billing/success';
 
 export interface PaywallSheetProps {
-  bottomSheetRef: React.RefObject<BottomSheetRef | null>;
+  bottomSheetRef: React.RefObject<BottomSheetMethods | null>;
   onDismiss?: () => void;
 }
 

@@ -2,7 +2,14 @@
  * Root layout. Entry: expo-router/entry -> app/_layout.tsx
  * SAFE FIRST FRAME: First paint is a minimal View+Text (no GestureHandlerRootView)
  * so we get a visible screen even if GHR/Reanimated crashes on mount.
+ *
+ * ISOLATION TOOL: Set MINIMAL_BOOT_TEST = true to verify the JS bundle renders at all.
+ * Bypass everything (GHR, session, Supabase, redirects) — just a plain View+Text.
+ * If this renders: bundle is fine. If blank: native/entry issue.
+ * Set back to false before shipping.
  */
+const MINIMAL_BOOT_TEST = false;
+
 import 'react-native-gesture-handler';
 import React from 'react';
 import { AppState, ActivityIndicator, StyleSheet, View, Text, TouchableOpacity } from 'react-native';
@@ -238,7 +245,10 @@ function RootNavigator() {
   }
 
   if (!session && !skipToAuth && !devBypass) {
-    if (pathname && !pathname.startsWith('/auth')) {
+    // Guard: always redirect to auth when not on an auth route.
+    // The pathname null check prevents loading the app stack before expo-router
+    // has resolved the initial route — which could mount BottomSheet before Reanimated is ready.
+    if (!pathname || !pathname.startsWith('/auth')) {
       return <Redirect href="/auth/sign-up" />;
     }
     return (
@@ -273,6 +283,14 @@ function AppTree() {
 
 export default function RootLayout() {
   console.log('[BOOT] 0. RootLayout render');
+  if (MINIMAL_BOOT_TEST) {
+    return (
+      <View style={{ flex: 1, backgroundColor: '#111', justifyContent: 'center', alignItems: 'center' }}>
+        <Text style={{ color: '#fff', fontSize: 24, fontWeight: '700' }}>MINIMAL BOOT OK</Text>
+        <Text style={{ color: '#888', fontSize: 14, marginTop: 8 }}>Set MINIMAL_BOOT_TEST=false to restore app</Text>
+      </View>
+    );
+  }
   return (
     <RootErrorBoundary>
       <AppTree />

@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import {
   View,
   Text,
@@ -9,8 +9,9 @@ import {
 import * as WebBrowser from 'expo-web-browser';
 import { theme } from '../../lib/theme';
 import { useSession } from '../../lib/hooks/useSession';
-import { supabase } from '../../lib/supabase';
 import type { Plan } from '@roam/types';
+// TODO(boot): supabase is lazy-loaded to prevent crash-on-import when env vars are missing
+type SupabaseClient = Awaited<typeof import('../../lib/supabase')>['supabase'];
 
 const API_BASE = process.env.EXPO_PUBLIC_API_URL ?? 'http://localhost:3001';
 const SUCCESS_URL = 'https://roamdance.com/billing/success';
@@ -22,6 +23,13 @@ export default function ProfileScreen() {
   const [loading, setLoading] = useState(true);
   const [checkoutLoading, setCheckoutLoading] = useState(false);
   const [portalLoading, setPortalLoading] = useState(false);
+  const supabaseRef = useRef<SupabaseClient | null>(null);
+
+  useEffect(() => {
+    import('../../lib/supabase')
+      .then(({ supabase }) => { supabaseRef.current = supabase; })
+      .catch(() => {});
+  }, []);
 
   useEffect(() => {
     if (!session?.access_token) {
@@ -43,8 +51,9 @@ export default function ProfileScreen() {
 
   useEffect(() => {
     const userId = session?.user?.id;
-    if (!userId) return;
-    const channel = supabase.channel(`profile-plan-${userId}`).on(
+    if (!userId || !supabaseRef.current) return;
+    const sb = supabaseRef.current;
+    const channel = sb.channel(`profile-plan-${userId}`).on(
       'postgres_changes',
       { event: 'UPDATE', schema: 'public', table: 'users', filter: `id=eq.${userId}` },
       (payload) => {
@@ -55,7 +64,7 @@ export default function ProfileScreen() {
       }
     ).subscribe();
     return () => {
-      supabase.removeChannel(channel);
+      sb.removeChannel(channel);
     };
   }, [session?.access_token, session?.user?.id]);
 

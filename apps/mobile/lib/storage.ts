@@ -1,12 +1,22 @@
 import { MMKV } from 'react-native-mmkv';
 import type { QueueItem } from '../services/uploadQueue';
 
-export const storage = new MMKV({ id: 'roam-store' });
+// TODO(boot): wrapped in try/catch so a missing/unlinked MMKV native module doesn't
+// crash the uploadQueue service at import time. Falls back to no-op storage.
+let storage: MMKV;
+try {
+  storage = new MMKV({ id: 'roam-store' });
+} catch (e) {
+  console.error('[storage] MMKV init failed, upload queue will not persist:', e);
+  storage = null as unknown as MMKV;
+}
+export { storage };
 
 const UPLOAD_QUEUE_KEY = 'upload_queue';
 const TUS_URLS_KEY = 'tus_urls';
 
 export function getUploadQueue(): QueueItem[] {
+  if (!storage) return [];
   const raw = storage.getString(UPLOAD_QUEUE_KEY);
   if (!raw) return [];
   try {
@@ -18,10 +28,12 @@ export function getUploadQueue(): QueueItem[] {
 }
 
 export function setUploadQueue(queue: QueueItem[]): void {
+  if (!storage) return;
   storage.set(UPLOAD_QUEUE_KEY, JSON.stringify(queue));
 }
 
 export function getTusUrls(): Record<string, string> {
+  if (!storage) return {};
   const raw = storage.getString(TUS_URLS_KEY);
   if (!raw) return {};
   try {
@@ -36,5 +48,6 @@ export function getTusUrls(): Record<string, string> {
 }
 
 export function setTusUrls(urls: Record<string, string>): void {
+  if (!storage) return;
   storage.set(TUS_URLS_KEY, JSON.stringify(urls));
 }
