@@ -14,7 +14,7 @@ import { theme } from '../../../lib/theme';
 import { useClips } from '../../../lib/hooks/useClips';
 import { useSession } from '../../../lib/hooks/useSession';
 import { TagSheet } from '../../../components/TagSheet';
-import BottomSheet, { type BottomSheetRef } from '@gorhom/bottom-sheet';
+import BottomSheet, { type BottomSheetMethods } from '@gorhom/bottom-sheet';
 import { supabase } from '../../../lib/supabase';
 import type { ClipRow } from '../../../lib/database';
 import type { ClipComment, ClipAnnotation, AnnotationType } from '@roam/types';
@@ -67,7 +67,7 @@ export default function ClipPlayerScreen() {
   >([]);
   const [frameSize, setFrameSize] = useState({ width: 0, height: 0 });
   const videoRef = useRef<Video>(null);
-  const tagSheetRef = useRef<BottomSheetRef | null>(null);
+  const tagSheetRef = useRef<BottomSheetMethods | null>(null);
 
   const clip = hasSessionContext ? clips[currentIndex] ?? null : null;
 

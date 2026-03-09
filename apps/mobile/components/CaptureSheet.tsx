@@ -5,11 +5,11 @@ import {
   StyleSheet,
   TouchableOpacity,
 } from 'react-native';
-import BottomSheet, { type BottomSheetRef } from '@gorhom/bottom-sheet';
+import BottomSheet, { type BottomSheetMethods } from '@gorhom/bottom-sheet';
 import { theme } from '../lib/theme';
 
 export interface CaptureSheetProps {
-  bottomSheetRef: React.RefObject<BottomSheetRef | null>;
+  bottomSheetRef: React.RefObject<BottomSheetMethods | null>;
   onRecord: () => void;
   onGallery: () => void;
 }

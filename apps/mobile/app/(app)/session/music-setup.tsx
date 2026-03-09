@@ -8,7 +8,7 @@ import {
 } from 'react-native';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import * as DocumentPicker from 'expo-document-picker';
-import BottomSheet, { type BottomSheetRef } from '@gorhom/bottom-sheet';
+import BottomSheet, { type BottomSheetMethods } from '@gorhom/bottom-sheet';
 import { theme } from '../../../lib/theme';
 import { useSession } from '../../../lib/hooks/useSession';
 import { useMusicTrackStatus } from '../../../lib/hooks/useMusicTrackStatus';
@@ -29,7 +29,7 @@ export default function MusicSetupScreen() {
   const [error, setError] = useState<string | null>(null);
   const [localAnalysing, setLocalAnalysing] = useState(false);
   const hasNavigatedToBeatGrid = useRef(false);
-  const paywallSheetRef = useRef<BottomSheetRef | null>(null);
+  const paywallSheetRef = useRef<BottomSheetMethods | null>(null);
 
   // Clear local analysing when real status is known
   useEffect(() => {

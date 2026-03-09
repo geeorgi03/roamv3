@@ -12,7 +12,7 @@ import { theme } from '../../../lib/theme';
 import { useMusicTrackStatus } from '../../../lib/hooks/useMusicTrackStatus';
 import { useClips } from '../../../lib/hooks/useClips';
 import { useSession } from '../../../lib/hooks/useSession';
-import BottomSheet, { type BottomSheetRef } from '@gorhom/bottom-sheet';
+import BottomSheet, { type BottomSheetMethods } from '@gorhom/bottom-sheet';
 import { ShareSheet } from '../../../components/ShareSheet';
 import { CaptureSheet } from '../../../components/CaptureSheet';
 import { ClipCard } from '../../../components/ClipCard';
@@ -32,10 +32,10 @@ export default function SessionWorkspaceScreen() {
   const navigation = useNavigation();
   const { session } = useSession();
   const { musicTrack } = useMusicTrackStatus(id ?? null);
-  const shareSheetRef = useRef<BottomSheetRef | null>(null);
-  const captureSheetRef = useRef<BottomSheetRef | null>(null);
-  const tagSheetRef = useRef<BottomSheetRef | null>(null);
-  const paywallSheetRef = useRef<BottomSheetRef | null>(null);
+  const shareSheetRef = useRef<BottomSheetMethods | null>(null);
+  const captureSheetRef = useRef<BottomSheetMethods | null>(null);
+  const tagSheetRef = useRef<BottomSheetMethods | null>(null);
+  const paywallSheetRef = useRef<BottomSheetMethods | null>(null);
   const openPaywall = useCallback(() => {
     paywallSheetRef.current?.snapToIndex(0);
   }, []);

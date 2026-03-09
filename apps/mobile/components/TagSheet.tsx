@@ -7,7 +7,7 @@ import {
   TextInput,
   ActivityIndicator,
 } from 'react-native';
-import BottomSheet, { type BottomSheetRef } from '@gorhom/bottom-sheet';
+import BottomSheet, { type BottomSheetMethods } from '@gorhom/bottom-sheet';
 import { theme } from '../lib/theme';
 import { useSession } from '../lib/hooks/useSession';
 import { updateClipTags } from '../lib/database';
@@ -21,7 +21,7 @@ const DIFFICULTY_LEVELS = ['Beginner', 'Intermediate', 'Advanced'] as const;
 
 export interface TagSheetProps {
   clip: ClipRow | null;
-  bottomSheetRef: React.RefObject<BottomSheetRef | null>;
+  bottomSheetRef: React.RefObject<BottomSheetMethods | null>;
   onSaved: (updatedClip: ClipRow) => void;
   musicTrackBpm?: number | null;
 }
