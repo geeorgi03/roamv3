@@ -8,19 +8,30 @@
  * If this renders: bundle is fine. If blank: native/entry issue.
  * Set back to false before shipping.
  */
-const MINIMAL_BOOT_TEST = true;
+const MINIMAL_BOOT_TEST = false;
 
-import 'react-native-gesture-handler';
 import React from 'react';
 import { AppState, ActivityIndicator, StyleSheet, View, Text, TouchableOpacity } from 'react-native';
 import { useEffect, useState, useRef } from 'react';
 import { Redirect, Stack, usePathname } from 'expo-router';
 import * as SplashScreen from 'expo-splash-screen';
 import Toast from 'react-native-toast-message';
-import { GestureHandlerRootView } from 'react-native-gesture-handler';
 import { useSession } from '../lib/hooks/useSession';
 import { theme } from '../lib/theme';
 import { getDevBypassAuth } from '../lib/devBypassAuth';
+
+// Defensive require: if RNGestureHandlerModule is missing from the native binary
+// (e.g. NDK mismatch in EAS build), getEnforcing() throws at module-eval time and
+// kills the entire JS bundle before RootLayout renders — causing a silent white screen.
+// Using require() inside try/catch means the throw is caught and we degrade gracefully.
+type GHRType = React.ComponentType<{ style?: object; children: React.ReactNode }>;
+let GestureHandlerRootView: GHRType | null = null;
+try {
+  // eslint-disable-next-line @typescript-eslint/no-var-requires
+  GestureHandlerRootView = (require('react-native-gesture-handler') as { GestureHandlerRootView: GHRType }).GestureHandlerRootView ?? null;
+} catch (e) {
+  console.error('[BOOT] react-native-gesture-handler unavailable — GHR disabled:', e);
+}
 
 const SPLASH_MAX_VISIBLE_MS = 4_000;
 const SAFE_FIRST_FRAME_MS = 500; // show "Roam" briefly so first paint is visible
@@ -270,6 +281,19 @@ function RootNavigator() {
 }
 
 function AppTree() {
+  // If GHR failed to load (native module missing), render without it so the app
+  // is at least visible. Gesture-driven components (BottomSheet) will not work
+  // until the native module is correctly linked, but auth + navigation still render.
+  if (!GestureHandlerRootView) {
+    console.warn('[BOOT] GestureHandlerRootView unavailable — rendering without GHR');
+    return (
+      <SafeFirstFrame>
+        <View style={{ flex: 1 }}>
+          <RootNavigator />
+        </View>
+      </SafeFirstFrame>
+    );
+  }
   return (
     <SafeFirstFrame>
       <GestureHandlerRootView style={{ flex: 1 }}>
