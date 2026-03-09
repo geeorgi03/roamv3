@@ -235,11 +235,9 @@ function RootNavigator() {
             Set EXPO_PUBLIC_SUPABASE_URL and EXPO_PUBLIC_SUPABASE_ANON_KEY in EAS environment variables for your build profile.
           </Text>
         )}
-        {(isTimeout || isConfigError) && (
-          <TouchableOpacity style={styles.continueButton} onPress={() => setIgnoreSessionError(true)}>
-            <Text style={styles.continueButtonText}>Continue anyway</Text>
-          </TouchableOpacity>
-        )}
+        <TouchableOpacity style={styles.continueButton} onPress={() => setIgnoreSessionError(true)}>
+          <Text style={styles.continueButtonText}>Continue anyway</Text>
+        </TouchableOpacity>
       </View>
     );
   }
