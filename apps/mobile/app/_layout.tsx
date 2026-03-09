@@ -8,7 +8,7 @@
  * If this renders: bundle is fine. If blank: native/entry issue.
  * Set back to false before shipping.
  */
-const MINIMAL_BOOT_TEST = false;
+const MINIMAL_BOOT_TEST = true;
 
 import 'react-native-gesture-handler';
 import React from 'react';
