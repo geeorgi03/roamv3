@@ -7,12 +7,15 @@ import {
   StyleSheet,
   KeyboardAvoidingView,
   Platform,
+  ActivityIndicator,
 } from 'react-native';
 import { router } from 'expo-router';
-import { supabase } from '../../lib/supabase';
+import { useSupabaseSafe } from '../../lib/hooks/useSupabaseSafe';
 import { theme } from '../../lib/theme';
+import { setDevBypassAuth } from '../../lib/devBypassAuth';
 
 export default function SignUpScreen() {
+  const { supabase, error: configError, loading: configLoading } = useSupabaseSafe();
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [loading, setLoading] = useState(false);
@@ -20,6 +23,7 @@ export default function SignUpScreen() {
   const [message, setMessage] = useState<string | null>(null);
 
   async function handleSignUp() {
+    if (!supabase) return;
     setError(null);
     setMessage(null);
     setLoading(true);
@@ -32,13 +36,57 @@ export default function SignUpScreen() {
     setMessage('Check your email to confirm your account.');
   }
 
+  if (configLoading) {
+    return (
+      <View style={styles.container}>
+        <View style={styles.content}>
+          <ActivityIndicator size="large" color={theme.textPrimary} />
+        </View>
+      </View>
+    );
+  }
+
+  if (configError || !supabase) {
+    const isConfig = configError?.message?.includes('EXPO_PUBLIC_');
+    return (
+      <View style={styles.container}>
+        <View style={styles.content}>
+          <Text style={styles.title}>Sign Up</Text>
+          <Text style={[styles.error, { marginBottom: 24 }]}>
+            {isConfig
+              ? 'Sign-up is not configured for this build. Set EXPO_PUBLIC_SUPABASE_URL and EXPO_PUBLIC_SUPABASE_ANON_KEY in EAS environment variables, then create a new build.'
+              : configError?.message ?? 'Something went wrong.'}
+          </Text>
+          <TouchableOpacity
+            style={styles.link}
+            onPress={() => router.replace('/auth/sign-in')}
+          >
+            <Text style={styles.linkText}>Back to sign in</Text>
+          </TouchableOpacity>
+          {__DEV__ && (
+            <TouchableOpacity
+              style={[styles.link, { marginTop: 16 }]}
+              onPress={() => {
+                setDevBypassAuth(true);
+                router.replace('/(app)');
+              }}
+            >
+              <Text style={[styles.linkText, { color: '#2a7c6f' }]}>Open app (dev only)</Text>
+            </TouchableOpacity>
+          )}
+        </View>
+      </View>
+    );
+  }
+
   return (
     <KeyboardAvoidingView
       style={styles.container}
       behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
     >
       <View style={styles.content}>
-        <Text style={styles.title}>Sign Up</Text>
+        <Text style={styles.title}>Create account</Text>
+        <Text style={styles.subtitle}>Sign up to start recording and organizing your choreography.</Text>
         <TextInput
           style={styles.input}
           placeholder="Email"
@@ -62,9 +110,9 @@ export default function SignUpScreen() {
         <TouchableOpacity
           style={[styles.button, loading && styles.buttonDisabled]}
           onPress={handleSignUp}
-          disabled={loading}
+          disabled={loading || !supabase}
         >
-          <Text style={styles.buttonText}>{loading ? 'Creating…' : 'Sign Up'}</Text>
+          <Text style={styles.buttonText}>{loading ? 'Creating…' : 'Create account'}</Text>
         </TouchableOpacity>
         <TouchableOpacity
           style={styles.link}
@@ -72,6 +120,17 @@ export default function SignUpScreen() {
         >
           <Text style={styles.linkText}>Back to sign in</Text>
         </TouchableOpacity>
+        {__DEV__ && (
+          <TouchableOpacity
+            style={[styles.link, { marginTop: 8 }]}
+            onPress={() => {
+              setDevBypassAuth(true);
+              router.replace('/(app)');
+            }}
+          >
+            <Text style={[styles.linkText, { color: '#2a7c6f' }]}>Open app (dev only)</Text>
+          </TouchableOpacity>
+        )}
       </View>
     </KeyboardAvoidingView>
   );
@@ -91,6 +150,11 @@ const styles = StyleSheet.create({
     fontSize: 28,
     fontWeight: '700',
     color: theme.textPrimary,
+    marginBottom: 8,
+  },
+  subtitle: {
+    fontSize: 14,
+    color: theme.textSecondary,
     marginBottom: 24,
   },
   input: {

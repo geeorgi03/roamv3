@@ -1,7 +1,7 @@
 import { useEffect, useState, useRef } from 'react';
 import type { Session } from '@supabase/supabase-js';
 
-const LOADING_TIMEOUT_MS = 12_000;
+const LOADING_TIMEOUT_MS = 5_000;
 
 export function useSession() {
   const [session, setSession] = useState<Session | null>(null);
@@ -12,34 +12,42 @@ export function useSession() {
 
   useEffect(() => {
     let mounted = true;
+    console.log('[BOOT] auth restore (supabase init) started');
 
     timeoutRef.current = setTimeout(() => {
       if (mounted && loading) {
+        console.warn('[BOOT] auth restore timeout reached');
         setLoading(false);
         setError(new Error('Loading timed out. Check your connection.'));
       }
     }, LOADING_TIMEOUT_MS);
 
+    console.log('[BOOT] auth restore: importing supabase module');
     import('../supabase')
       .then(({ supabase }) => {
         if (!mounted) return null;
+        console.log('[BOOT] supabase init done');
         const { data } = supabase.auth.onAuthStateChange((_event, s) => {
           if (mounted) setSession(s);
         });
         subRef.current = data.subscription;
+        console.log('[BOOT] auth restore getSession started');
         return supabase.auth.getSession().then((r) => ({ supabase, result: r }));
       })
       .then((data) => {
         if (!mounted || !data) return;
+        console.log('[BOOT] auth restore getSession done');
         setSession(data.result.data.session);
       })
       .catch((err) => {
         if (mounted) {
+          console.log('[BOOT] auth restore error', err?.message ?? err);
           setError(err instanceof Error ? err : new Error(String(err)));
         }
       })
       .finally(() => {
         if (mounted) {
+          console.log('[BOOT] auth restore finally');
           if (timeoutRef.current) {
             clearTimeout(timeoutRef.current);
             timeoutRef.current = null;

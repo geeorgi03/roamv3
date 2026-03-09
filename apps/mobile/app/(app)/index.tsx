@@ -5,6 +5,8 @@ import {
   StyleSheet,
   TouchableOpacity,
   FlatList,
+  ActivityIndicator,
+  ScrollView,
 } from 'react-native';
 import { router, useNavigation } from 'expo-router';
 import { theme } from '../../lib/theme';
@@ -23,19 +25,33 @@ export default function HomeScreen() {
   const paywallSheetRef = useRef<BottomSheetRef | null>(null);
   const [sessions, setSessions] = useState<Session[]>([]);
   const [loading, setLoading] = useState(true);
+  const [sheetsReady, setSheetsReady] = useState(true);
+
+  useEffect(() => {
+    const t = setTimeout(() => setSheetsReady(true), 100);
+    return () => clearTimeout(t);
+  }, []);
 
   const fetchSessions = async () => {
     if (!session?.access_token) {
       setLoading(false);
       return;
     }
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 10_000);
     try {
       const res = await fetch(`${API_BASE}/sessions`, {
         headers: { Authorization: `Bearer ${session.access_token}` },
+        signal: controller.signal,
       });
+      clearTimeout(timeoutId);
       const data = await res.json();
       if (res.ok) setSessions((data as { sessions: Session[] }).sessions ?? []);
+    } catch {
+      // API unreachable, timeout, or network error
+      setSessions([]);
     } finally {
+      clearTimeout(timeoutId);
       setLoading(false);
     }
   };
@@ -75,6 +91,7 @@ export default function HomeScreen() {
 
   const handleCreated = (newSession: Session) => {
     setSessions((prev) => [newSession, ...prev]);
+    createSheetRef.current?.close();
     router.push(`/session/${newSession.id}`);
   };
 
@@ -90,34 +107,61 @@ export default function HomeScreen() {
 
   return (
     <View style={styles.container}>
-      <FlatList
-        data={sessions}
-        keyExtractor={(item) => item.id}
-        contentContainerStyle={sessions.length === 0 ? styles.emptyList : styles.listContent}
-        ListEmptyComponent={
-          <TouchableOpacity style={styles.empty} activeOpacity={0.8}>
-            <Text style={styles.icon}>📋</Text>
-            <Text style={styles.title}>No sessions yet</Text>
-            <Text style={styles.subtitle}>Tap + to start your first session</Text>
-          </TouchableOpacity>
-        }
-        renderItem={({ item }) => (
-          <TouchableOpacity
-            style={styles.card}
-            onPress={() => router.push(`/session/${item.id}`)}
-            activeOpacity={0.8}
-          >
-            <Text style={styles.cardTitle}>{item.name}</Text>
-            <Text style={styles.cardDate}>{formatDate(item.created_at)}</Text>
-          </TouchableOpacity>
-        )}
-      />
-      <CreateSessionSheet
-        bottomSheetRef={createSheetRef}
-        onCreated={handleCreated}
-        onPaywallRequired={() => paywallSheetRef.current?.snapToIndex(0)}
-      />
-      <PaywallSheet bottomSheetRef={paywallSheetRef} />
+      {sessions.length === 0 ? (
+        <ScrollView
+          contentContainerStyle={styles.emptyScroll}
+          style={styles.container}
+          showsVerticalScrollIndicator={false}
+        >
+          <View style={styles.empty}>
+            {loading ? (
+              <>
+                <ActivityIndicator size="small" color={theme.textPrimary} style={{ marginBottom: 12 }} />
+                <Text style={styles.subtitle}>Loading sessions…</Text>
+              </>
+            ) : (
+              <>
+                <Text style={styles.icon}>📋</Text>
+                <Text style={styles.title}>No sessions yet</Text>
+                <Text style={styles.subtitle}>Start a session to record and organize your choreography.</Text>
+              </>
+            )}
+            <TouchableOpacity
+              style={styles.primaryButton}
+              onPress={() => createSheetRef.current?.snapToIndex(0)}
+              activeOpacity={0.8}
+            >
+              <Text style={styles.primaryButtonText}>Start your first session</Text>
+            </TouchableOpacity>
+          </View>
+        </ScrollView>
+      ) : (
+        <FlatList
+          data={sessions}
+          keyExtractor={(item) => item.id}
+          contentContainerStyle={styles.listContent}
+          renderItem={({ item }) => (
+            <TouchableOpacity
+              style={styles.card}
+              onPress={() => router.push(`/session/${item.id}`)}
+              activeOpacity={0.8}
+            >
+              <Text style={styles.cardTitle}>{item.name}</Text>
+              <Text style={styles.cardDate}>{formatDate(item.created_at)}</Text>
+            </TouchableOpacity>
+          )}
+        />
+      )}
+      {sheetsReady && (
+        <>
+          <CreateSessionSheet
+            bottomSheetRef={createSheetRef}
+            onCreated={handleCreated}
+            onPaywallRequired={() => paywallSheetRef.current?.snapToIndex(0)}
+          />
+          <PaywallSheet bottomSheetRef={paywallSheetRef} />
+        </>
+      )}
     </View>
   );
 }
@@ -126,6 +170,11 @@ const styles = StyleSheet.create({
   container: {
     flex: 1,
     backgroundColor: theme.background,
+  },
+  emptyScroll: {
+    flexGrow: 1,
+    minHeight: 400,
+    justifyContent: 'center',
   },
   headerLeft: {
     flexDirection: 'row',
@@ -144,17 +193,17 @@ const styles = StyleSheet.create({
     fontSize: 14,
     fontWeight: '700',
   },
-  emptyList: {
+  empty: {
     flex: 1,
+    minHeight: 280,
+    justifyContent: 'center',
+    alignItems: 'center',
+    paddingHorizontal: 24,
+    paddingVertical: 32,
   },
   listContent: {
     padding: 16,
     paddingBottom: 24,
-  },
-  empty: {
-    flex: 1,
-    justifyContent: 'center',
-    alignItems: 'center',
   },
   icon: {
     fontSize: 48,
@@ -169,6 +218,19 @@ const styles = StyleSheet.create({
   subtitle: {
     fontSize: 14,
     color: theme.textSecondary,
+    textAlign: 'center',
+    marginBottom: 24,
+  },
+  primaryButton: {
+    backgroundColor: '#2a7c6f',
+    paddingVertical: 14,
+    paddingHorizontal: 24,
+    borderRadius: theme.borderRadius,
+  },
+  primaryButtonText: {
+    color: '#fff',
+    fontSize: 16,
+    fontWeight: '600',
   },
   card: {
     backgroundColor: '#222',

@@ -1,6 +1,8 @@
 import * as SecureStore from 'expo-secure-store';
 import { createSupabaseClientFromExpoEnv } from '@roam/db';
 
+console.log('[BOOT] supabase module loading');
+
 const secureStorage = {
   getItem: async (key: string) => {
     return await SecureStore.getItemAsync(key);
@@ -21,3 +23,5 @@ export const supabase = createSupabaseClientFromExpoEnv({
     detectSessionInUrl: false,
   },
 });
+
+console.log('[BOOT] Supabase client created');

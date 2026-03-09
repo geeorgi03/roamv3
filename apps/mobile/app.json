@@ -11,7 +11,10 @@
     },
     "scheme": "roam",
     "ios": {
-      "bundleIdentifier": "com.roam.mobile"
+      "bundleIdentifier": "com.roam.mobile",
+      "infoPlist": {
+        "ITSAppUsesNonExemptEncryption": false
+      }
     },
     "android": {
       "package": "com.roam.mobile",
