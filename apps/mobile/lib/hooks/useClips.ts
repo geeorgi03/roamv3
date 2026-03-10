@@ -46,6 +46,7 @@ export function useClips(sessionId: string | null, onPlanLimitReached?: () => vo
       setClips([]);
       return;
     }
+    if (!supabase) return;
 
     setClips(getClipsForSession(sessionId));
 
@@ -171,7 +172,7 @@ export function useClips(sessionId: string | null, onPlanLimitReached?: () => vo
     return () => {
       unsubscribe();
       mounted = false;
-      supabase.removeChannel(channel);
+      supabase?.removeChannel(channel);
     };
   }, [sessionId]);
 

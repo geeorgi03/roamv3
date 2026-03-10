@@ -7,12 +7,12 @@ import {
   Modal,
 } from 'react-native';
 import { useLocalSearchParams, useRouter } from 'expo-router';
-import { Video, AVPlaybackStatus } from 'expo-av';
+import { Video, AVPlaybackStatus, ResizeMode } from 'expo-av';
 import Slider from '@react-native-community/slider';
 // Lazy require: a native-module init failure must not prevent route discovery
 let GestureDetector: React.ComponentType<{ gesture: unknown; children: React.ReactNode }> =
   ({ children }) => <>{children}</>;
-let Gesture: { Pan: () => { onEnd: (fn: (e: { translationX: number }) => void) => unknown } } = {
+let Gesture: { Pan: () => { onEnd: (fn: (e: { translationX: number; translationY: number }) => void) => unknown } } = {
   Pan: () => ({ onEnd: () => ({}) }),
 };
 try {
@@ -27,13 +27,13 @@ import { theme } from '../../../lib/theme';
 import { useClips } from '../../../lib/hooks/useClips';
 import { useSession } from '../../../lib/hooks/useSession';
 import { TagSheet } from '../../../components/TagSheet';
-import BottomSheet, { type BottomSheetMethods } from '@gorhom/bottom-sheet';
+import BottomSheet from '@gorhom/bottom-sheet';
 import { supabase } from '../../../lib/supabase';
 import type { ClipRow } from '../../../lib/database';
 import type { ClipComment, ClipAnnotation, AnnotationType } from '@roam/types';
 import { AnnotationOverlay } from '../../../components/AnnotationOverlay';
 
-const API_BASE = process.env.EXPO_PUBLIC_API_URL ?? 'http://localhost:3001';
+import { API_BASE } from '../../../lib/api';
 
 type SessionParams = {
   sessionId?: string;
@@ -80,7 +80,7 @@ export default function ClipPlayerScreen() {
   >([]);
   const [frameSize, setFrameSize] = useState({ width: 0, height: 0 });
   const videoRef = useRef<Video>(null);
-  const tagSheetRef = useRef<BottomSheetMethods | null>(null);
+  const tagSheetRef = useRef<BottomSheet | null>(null);
 
   const clip = hasSessionContext ? clips[currentIndex] ?? null : null;
 
@@ -133,6 +133,7 @@ export default function ClipPlayerScreen() {
 
   useEffect(() => {
     if (!clipServerId) return;
+    if (!supabase) return;
     let mounted = true;
     const channel = supabase
       .channel(`clip_comments:clip_id=eq.${clipServerId}`)
@@ -164,7 +165,7 @@ export default function ClipPlayerScreen() {
       .subscribe();
     return () => {
       mounted = false;
-      supabase.removeChannel(channel);
+      supabase?.removeChannel(channel);
     };
   }, [clipServerId]);
 
@@ -411,7 +412,7 @@ export default function ClipPlayerScreen() {
             source={{ uri: `https://stream.mux.com/${mux_playback_id}.m3u8` }}
             style={StyleSheet.absoluteFill}
             useNativeControls={false}
-            resizeMode="contain"
+            resizeMode={ResizeMode.CONTAIN}
             shouldPlay={playing}
             onPlaybackStatusUpdate={onPlaybackStatusUpdate}
           />
@@ -498,7 +499,7 @@ export default function ClipPlayerScreen() {
             source={{ uri: `https://stream.mux.com/${clip!.mux_playback_id}.m3u8` }}
             style={StyleSheet.absoluteFill}
             useNativeControls={false}
-            resizeMode="contain"
+            resizeMode={ResizeMode.CONTAIN}
             shouldPlay={playing}
             onPlaybackStatusUpdate={onPlaybackStatusUpdate}
           />

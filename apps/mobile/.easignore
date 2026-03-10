@@ -1,0 +1,10 @@
+node_modules
+dist
+.expo/
+.next
+.turbo
+*.tsbuildinfo
+coverage
+*.log
+.DS_Store
+# .env.local is intentionally NOT excluded — EAS Build needs it for EXPO_PUBLIC_* vars

@@ -11,7 +11,7 @@
 const MINIMAL_BOOT_TEST = false;
 
 import React from 'react';
-import { AppState, ActivityIndicator, StyleSheet, View, Text, TouchableOpacity } from 'react-native';
+import { AppState, ActivityIndicator, StyleSheet, View, Text, TouchableOpacity, Linking } from 'react-native';
 import { useEffect, useState, useRef } from 'react';
 import { Stack, usePathname, useRootNavigationState, router } from 'expo-router';
 import * as SplashScreen from 'expo-splash-screen';
@@ -199,6 +199,21 @@ function RootNavigator() {
   useEffect(() => {
     const t = setTimeout(() => setShowSkipOption(true), 3000);
     return () => clearTimeout(t);
+  }, []);
+
+  // Handle auth deep link (email confirmation, magic link)
+  useEffect(() => {
+    const handleUrl = async (url: string | null) => {
+      if (!url || !url.includes('auth/callback')) return;
+      const { supabase } = await import('../lib/supabase');
+      if (!supabase) return;
+      const { createSessionFromUrl } = await import('../lib/authRedirect');
+      const ok = await createSessionFromUrl(url, supabase);
+      if (ok) router.replace('/(app)');
+    };
+    Linking.getInitialURL().then(handleUrl);
+    const sub = Linking.addEventListener('url', ({ url }) => handleUrl(url));
+    return () => sub.remove();
   }, []);
 
   useEffect(() => {

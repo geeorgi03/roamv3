@@ -7,11 +7,10 @@ import {
   TextInput,
   ActivityIndicator,
 } from 'react-native';
-import BottomSheet, { type BottomSheetMethods } from '@gorhom/bottom-sheet';
+import BottomSheet from '@gorhom/bottom-sheet';
 import { theme } from '../lib/theme';
 import { useSession } from '../lib/hooks/useSession';
-
-const API_BASE = process.env.EXPO_PUBLIC_API_URL ?? 'http://localhost:3001';
+import { API_BASE } from '../lib/api';
 
 const defaultName = () =>
   new Date().toLocaleDateString(undefined, {
@@ -21,7 +20,7 @@ const defaultName = () =>
   });
 
 export interface CreateSessionSheetProps {
-  bottomSheetRef: React.RefObject<BottomSheetMethods | null>;
+  bottomSheetRef: React.RefObject<BottomSheet | null>;
   onCreated: (session: { id: string; name: string; created_at: string; user_id: string }) => void;
   onPaywallRequired?: () => void;
 }
@@ -70,7 +69,7 @@ export function CreateSessionSheet({
 
   return (
     <BottomSheet
-      ref={bottomSheetRef}
+      ref={bottomSheetRef as React.RefObject<BottomSheet>}
       index={-1}
       snapPoints={['40%']}
       enablePanDownToClose

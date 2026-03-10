@@ -7,7 +7,7 @@ import {
   Share,
   ActivityIndicator,
 } from 'react-native';
-import BottomSheet, { type BottomSheetMethods } from '@gorhom/bottom-sheet';
+import BottomSheet from '@gorhom/bottom-sheet';
 import * as Clipboard from 'expo-clipboard';
 import Toast from 'react-native-toast-message';
 import { theme } from '../lib/theme';
@@ -18,7 +18,7 @@ export interface ShareSheetProps {
   sessionName: string;
   hasMusic: boolean;
   untaggedClipCount: number;
-  bottomSheetRef: React.RefObject<BottomSheetMethods | null>;
+  bottomSheetRef: React.RefObject<BottomSheet | null>;
 }
 
 export function ShareSheet({
@@ -54,7 +54,7 @@ export function ShareSheet({
 
   return (
     <BottomSheet
-      ref={bottomSheetRef}
+      ref={bottomSheetRef as React.RefObject<BottomSheet>}
       index={-1}
       snapPoints={['40%']}
       enablePanDownToClose

@@ -1,7 +1,7 @@
 import { Hono } from 'hono';
 import { requireAuth } from '../middleware/auth.js';
 import { supabase } from '../lib/supabase.js';
-import { stripe, PRICE_IDS } from '../lib/stripe.js';
+import { getStripeClient, PRICE_IDS } from '../lib/stripe.js';
 
 const app = new Hono<{ Variables: { userId: string } }>().use('*', requireAuth);
 
@@ -26,6 +26,11 @@ app.get('/me', async (c) => {
 
 /** POST /billing/checkout — creates Stripe Checkout Session */
 app.post('/checkout', async (c) => {
+  const stripe = getStripeClient();
+  if (!stripe) {
+    return c.json({ error: 'Billing not configured' }, 503);
+  }
+
   const userId = c.get('userId');
   let body: { plan?: string };
   try {
@@ -82,6 +87,11 @@ app.post('/checkout', async (c) => {
 
 /** POST /billing/portal — creates Stripe Customer Portal session */
 app.post('/portal', async (c) => {
+  const stripe = getStripeClient();
+  if (!stripe) {
+    return c.json({ error: 'Billing not configured' }, 503);
+  }
+
   const userId = c.get('userId');
   const { data, error } = await supabase
     .from('users')

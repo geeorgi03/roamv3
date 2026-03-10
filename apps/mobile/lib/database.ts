@@ -1,9 +1,4 @@
-import { openDatabaseSync } from 'expo-sqlite';
-
-export const db = openDatabaseSync('roam.db');
-
-// Confirm database opens successfully
-db.execSync('SELECT 1');
+import type { SQLiteDatabase } from 'expo-sqlite';
 
 const SCHEMA = `
 CREATE TABLE IF NOT EXISTS clips (
@@ -25,7 +20,50 @@ CREATE TABLE IF NOT EXISTS clips (
 );
 `;
 
-db.execSync(SCHEMA);
+let _db: SQLiteDatabase | null = null;
+let _dbError: Error | null = null;
+let _dbInitialized = false;
+
+function initDb(): SQLiteDatabase | null {
+  if (_dbInitialized) return _db;
+  _dbInitialized = true;
+  try {
+    // eslint-disable-next-line @typescript-eslint/no-var-requires
+    const { openDatabaseSync } = require('expo-sqlite') as typeof import('expo-sqlite');
+    _db = openDatabaseSync('roam.db');
+    _db.execSync('SELECT 1');
+    _db.execSync(SCHEMA);
+    console.log('[database] SQLite initialised');
+  } catch (e) {
+    _dbError = e instanceof Error ? e : new Error(String(e));
+    console.error('[database] SQLite init failed — local clip storage unavailable:', _dbError.message);
+    _db = null;
+  }
+  return _db;
+}
+
+/** Returns the SQLite database, or null if native module is unavailable. */
+export function getDb(): SQLiteDatabase | null {
+  return initDb();
+}
+
+/** @deprecated Direct export kept for call-site compat; prefer getDb(). */
+export const db = new Proxy({} as SQLiteDatabase, {
+  get(_target, prop) {
+    const real = initDb();
+    if (!real) {
+      if (prop === 'runSync' || prop === 'execSync' || prop === 'getAllSync') {
+        return () => {
+          console.warn(`[database] db.${String(prop)} called but SQLite is unavailable`);
+          if (prop === 'getAllSync') return [];
+        };
+      }
+      return undefined;
+    }
+    const val = (real as unknown as Record<string | symbol, unknown>)[prop];
+    return typeof val === 'function' ? (val as Function).bind(real) : val;
+  },
+});
 
 export interface ClipRow {
   local_id: string;
@@ -153,7 +191,7 @@ export function updateClipFromServer(
   update: ClipServerUpdate
 ): void {
   const setClauses: string[] = [];
-  const values: unknown[] = [];
+  const values: (string | number | null)[] = [];
   if (update.server_id !== undefined) {
     setClauses.push('server_id = ?');
     values.push(update.server_id);

@@ -8,15 +8,15 @@ import {
 } from 'react-native';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import * as DocumentPicker from 'expo-document-picker';
-import BottomSheet, { type BottomSheetMethods } from '@gorhom/bottom-sheet';
+import BottomSheet from '@gorhom/bottom-sheet';
 import { theme } from '../../../lib/theme';
 import { useSession } from '../../../lib/hooks/useSession';
 import { useMusicTrackStatus } from '../../../lib/hooks/useMusicTrackStatus';
 import { PaywallSheet } from '../../../components/PaywallSheet';
 import { useState, useEffect, useRef } from 'react';
 import type { MusicTrack } from '@roam/types';
+import { API_BASE } from '../../../lib/api';
 
-const API_BASE = process.env.EXPO_PUBLIC_API_URL ?? 'http://localhost:3001';
 const YOUTUBE_URL_REGEX = /^(https?:\/\/)?(www\.)?(youtube\.com\/watch\?v=|youtu\.be\/)[\w-]+/;
 
 export default function MusicSetupScreen() {
@@ -29,7 +29,7 @@ export default function MusicSetupScreen() {
   const [error, setError] = useState<string | null>(null);
   const [localAnalysing, setLocalAnalysing] = useState(false);
   const hasNavigatedToBeatGrid = useRef(false);
-  const paywallSheetRef = useRef<BottomSheetMethods | null>(null);
+  const paywallSheetRef = useRef<BottomSheet | null>(null);
 
   // Clear local analysing when real status is known
   useEffect(() => {

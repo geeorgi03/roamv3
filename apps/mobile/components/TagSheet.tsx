@@ -7,13 +7,12 @@ import {
   TextInput,
   ActivityIndicator,
 } from 'react-native';
-import BottomSheet, { type BottomSheetMethods } from '@gorhom/bottom-sheet';
+import BottomSheet from '@gorhom/bottom-sheet';
 import { theme } from '../lib/theme';
 import { useSession } from '../lib/hooks/useSession';
 import { updateClipTags } from '../lib/database';
 import type { ClipRow } from '../lib/database';
-
-const API_BASE = process.env.EXPO_PUBLIC_API_URL ?? 'http://localhost:3001';
+import { API_BASE } from '../lib/api';
 
 const STYLES = ['Hip-hop', 'Contemporary', 'Ballet', 'Jazz', 'Fusion', 'Other'] as const;
 const ENERGY_LEVELS = ['Low', 'Medium', 'High', 'Explosive'] as const;
@@ -21,7 +20,7 @@ const DIFFICULTY_LEVELS = ['Beginner', 'Intermediate', 'Advanced'] as const;
 
 export interface TagSheetProps {
   clip: ClipRow | null;
-  bottomSheetRef: React.RefObject<BottomSheetMethods | null>;
+  bottomSheetRef: React.RefObject<BottomSheet | null>;
   onSaved: (updatedClip: ClipRow) => void;
   musicTrackBpm?: number | null;
 }
@@ -98,7 +97,7 @@ export function TagSheet({
   if (!clip) {
     return (
       <BottomSheet
-        ref={bottomSheetRef}
+        ref={bottomSheetRef as React.RefObject<BottomSheet>}
         index={-1}
         snapPoints={['80%']}
         enablePanDownToClose
@@ -112,7 +111,7 @@ export function TagSheet({
 
   return (
     <BottomSheet
-      ref={bottomSheetRef}
+      ref={bottomSheetRef as React.RefObject<BottomSheet>}
       index={-1}
       snapPoints={['80%']}
       enablePanDownToClose

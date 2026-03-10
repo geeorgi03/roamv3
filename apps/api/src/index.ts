@@ -2,6 +2,48 @@
  * Roam REST API — server bootstrap, session and clip routes, Supabase client wiring.
  * Uses @roam/types as the shared consumer contract and @roam/db for Supabase (service role).
  */
+
+const requiredEnvVars = [
+  'SUPABASE_URL',
+  'SUPABASE_ANON_KEY',
+  'SUPABASE_SERVICE_ROLE_KEY',
+  'SHARE_BASE_URL',
+  'MUX_TOKEN_ID',
+  'MUX_TOKEN_SECRET',
+  'MUX_WEBHOOK_SECRET',
+  'PORT',
+] as const;
+
+const missingEnvVars = requiredEnvVars.filter((key) => !process.env[key]);
+
+if (missingEnvVars.length > 0) {
+  // Fail fast on misconfiguration so deployments don't silently degrade at runtime.
+  console.error(
+    'Missing required environment variables. Set these in your deployment environment:',
+    missingEnvVars.join(', ')
+  );
+  process.exit(1);
+}
+
+if (process.env.ROAM_BETA_UNLOCK !== 'true') {
+  console.error(
+    'DEP-1 soft launch requires ROAM_BETA_UNLOCK to be set to "true". Current value:',
+    process.env.ROAM_BETA_UNLOCK ?? 'undefined'
+  );
+  process.exit(1);
+}
+
+const portRaw = process.env.PORT;
+const parsedPort = Number(portRaw);
+if (!portRaw || !Number.isInteger(parsedPort) || parsedPort <= 0) {
+  console.error(
+    'PORT must be set to a valid positive integer. Received:',
+    portRaw ?? 'undefined'
+  );
+  process.exit(1);
+}
+const PORT = parsedPort;
+
 import { Hono } from 'hono';
 import { serve } from '@hono/node-server';
 import { sessionsRoutes } from './routes/sessions.js';
@@ -22,6 +64,7 @@ import { billingRoutes } from './routes/billing.js';
 const app = new Hono();
 
 app.get('/', (c) => c.json({ name: 'Roam API', version: '0.0.1' }));
+app.get('/health', (c) => c.json({ status: 'ok' }));
 
 // Mount more specific routes first so /sessions/:id/music and /sessions/:sessionId/clips are matched before /sessions/:id
 app.route('/sessions', musicRoutes);
@@ -50,8 +93,6 @@ app.onError((err, c) => {
   );
 });
 
-const port = Number(process.env.PORT) || 3001;
-
-serve({ fetch: app.fetch, port }, (info) => {
+serve({ fetch: app.fetch, port: PORT }, (info) => {
   console.log(`Roam API listening on http://localhost:${info.port}`);
 });

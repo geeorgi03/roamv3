@@ -5,11 +5,11 @@ import {
   StyleSheet,
   TouchableOpacity,
 } from 'react-native';
-import BottomSheet, { type BottomSheetMethods } from '@gorhom/bottom-sheet';
+import BottomSheet from '@gorhom/bottom-sheet';
 import { theme } from '../lib/theme';
 
 export interface CaptureSheetProps {
-  bottomSheetRef: React.RefObject<BottomSheetMethods | null>;
+  bottomSheetRef: React.RefObject<BottomSheet | null>;
   onRecord: () => void;
   onGallery: () => void;
 }
@@ -21,7 +21,7 @@ export function CaptureSheet({
 }: CaptureSheetProps) {
   return (
     <BottomSheet
-      ref={bottomSheetRef}
+      ref={bottomSheetRef as React.RefObject<BottomSheet>}
       index={-1}
       snapPoints={['35%']}
       enablePanDownToClose

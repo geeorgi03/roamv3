@@ -1,7 +1,6 @@
 import { useState, useCallback } from 'react';
 import { supabase } from '../supabase';
-
-const API_BASE = process.env.EXPO_PUBLIC_API_URL ?? 'http://localhost:3001';
+import { API_BASE } from '../api';
 
 export function useShare(sessionId: string) {
   const [shareUrl, setShareUrl] = useState<string | null>(null);
@@ -10,6 +9,7 @@ export function useShare(sessionId: string) {
 
   const share = useCallback(async (): Promise<string | null> => {
     if (!sessionId) return null;
+    if (!supabase) return null;
     setLoading(true);
     setError(null);
     try {
@@ -44,6 +44,7 @@ export function useShare(sessionId: string) {
 
   const revoke = useCallback(async () => {
     if (!sessionId) return;
+    if (!supabase) return;
     setLoading(true);
     setError(null);
     try {

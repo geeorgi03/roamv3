@@ -14,7 +14,7 @@ import { useSession } from '../../../lib/hooks/useSession';
 import { supabase } from '../../../lib/supabase';
 import type { MusicTrack, SectionEntry } from '@roam/types';
 
-const API_BASE = process.env.EXPO_PUBLIC_API_URL ?? 'http://localhost:3001';
+import { API_BASE } from '../../../lib/api';
 
 function formatMs(ms: number) {
   const s = Math.floor(ms / 1000);
@@ -73,6 +73,7 @@ export default function YoutubePlayerScreen() {
 
   useEffect(() => {
     if (!sessionId || !musicTrackId) return;
+    if (!supabase) return;
     (async () => {
       const { data } = await supabase
         .from('music_tracks')

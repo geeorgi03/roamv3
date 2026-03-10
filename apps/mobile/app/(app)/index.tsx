@@ -14,15 +14,15 @@ import type { Session } from '@roam/types';
 import { useSession } from '../../lib/hooks/useSession';
 import { CreateSessionSheet } from '../../components/CreateSessionSheet';
 import { PaywallSheet } from '../../components/PaywallSheet';
-import BottomSheet, { type BottomSheetMethods } from '@gorhom/bottom-sheet';
+import BottomSheet from '@gorhom/bottom-sheet';
 
-const API_BASE = process.env.EXPO_PUBLIC_API_URL ?? 'http://localhost:3001';
+import { API_BASE } from '../../lib/api';
 
 export default function HomeScreen() {
   const navigation = useNavigation();
   const { session } = useSession();
-  const createSheetRef = useRef<BottomSheetMethods | null>(null);
-  const paywallSheetRef = useRef<BottomSheetMethods | null>(null);
+  const createSheetRef = useRef<BottomSheet | null>(null);
+  const paywallSheetRef = useRef<BottomSheet | null>(null);
   const [sessions, setSessions] = useState<Session[]>([]);
   const [loading, setLoading] = useState(true);
   // TODO(boot): start false so BottomSheet doesn't mount on first render before Reanimated is ready

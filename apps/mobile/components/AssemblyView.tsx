@@ -15,11 +15,12 @@ import { useMusicTrackStatus } from '../lib/hooks/useMusicTrackStatus';
 import { useClips } from '../lib/hooks/useClips';
 import type { SectionClip, SectionEntry } from '@roam/types';
 import type { ClipRow } from '../lib/database';
+import { API_BASE } from '../lib/api';
 
 // Lazy require so a native-module init error doesn't prevent route discovery
 let GestureDetector: React.ComponentType<{ gesture: unknown; children: React.ReactNode }> =
   ({ children }) => <>{children}</>;
-let Gesture: { Pan: () => { onBegin: (fn: (e: unknown) => unknown) => unknown; onUpdate: (fn: (e: unknown) => unknown) => unknown; onEnd: (fn: (e: unknown) => void) => unknown } } = {
+let Gesture: { Pan: () => { onBegin: (fn: (e: { translationX: number }) => unknown) => unknown; onUpdate: (fn: (e: { translationX: number }) => unknown) => unknown; onEnd: (fn: (e: { translationX: number }) => void) => unknown } } = {
   Pan: () => ({ onBegin: () => ({}), onUpdate: () => ({}), onEnd: () => ({}) }),
 };
 try {
@@ -31,7 +32,6 @@ try {
   // gesture handler unavailable — drag-to-assign disabled
 }
 
-const API_BASE = process.env.EXPO_PUBLIC_API_URL ?? 'http://localhost:3001';
 const { width: SCREEN_WIDTH } = Dimensions.get('window');
 const LEFT_WIDTH = SCREEN_WIDTH * 0.55;
 const RIGHT_WIDTH = SCREEN_WIDTH * 0.45;

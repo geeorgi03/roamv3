@@ -7,6 +7,7 @@ export function useMusicTrackStatus(sessionId: string | null) {
 
   const refetch = async () => {
     if (!sessionId) return;
+    if (!supabase) return;
     const { data } = await supabase
       .from('music_tracks')
       .select('*')
@@ -20,9 +21,10 @@ export function useMusicTrackStatus(sessionId: string | null) {
       setMusicTrack(null);
       return;
     }
+    if (!supabase) return;
 
     let mounted = true;
-    let channel: ReturnType<typeof supabase.channel> | null = null;
+    let channel: ReturnType<NonNullable<typeof supabase>['channel']> | null = null;
 
     (async () => {
       const { data } = await supabase
@@ -63,7 +65,7 @@ export function useMusicTrackStatus(sessionId: string | null) {
 
     return () => {
       mounted = false;
-      if (channel) supabase.removeChannel(channel);
+      if (channel) supabase?.removeChannel(channel);
     };
   }, [sessionId]);
 

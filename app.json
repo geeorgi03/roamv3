@@ -1,0 +1,12 @@
+{
+  "expo": {
+    "extra": {
+      "eas": {
+        "projectId": "08c579aa-c3b7-4eb7-b6b2-ad8d9021542c"
+      }
+    },
+    "android": {
+      "package": "com.georgii08.roamapp"
+    }
+  }
+}

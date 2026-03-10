@@ -1,7 +1,7 @@
 import { createHmac, timingSafeEqual } from 'node:crypto';
 import { Hono } from 'hono';
 import { supabase } from '../lib/supabase.js';
-import { stripe, PRICE_IDS } from '../lib/stripe.js';
+import { getStripeClient, PRICE_IDS } from '../lib/stripe.js';
 
 function verifyMuxSignature(
   rawBody: string,
@@ -137,12 +137,18 @@ app.post('/mux', async (c) => {
 
 /** POST /stripe — Stripe webhook (signature-verified, no auth) */
 app.post('/stripe', async (c) => {
+  const secret = process.env.STRIPE_WEBHOOK_SECRET ?? '';
+  const stripeClient = getStripeClient();
+
+  if (!secret || !stripeClient) {
+    return c.json({ received: true, stripeConfigured: false }, 200);
+  }
+
   const rawBody = await c.req.raw.text();
   const sig = c.req.header('stripe-signature') ?? '';
-  const secret = process.env.STRIPE_WEBHOOK_SECRET ?? '';
   let event: { type: string; data?: { object?: Record<string, unknown> } };
   try {
-    event = stripe.webhooks.constructEvent(rawBody, sig, secret) as unknown as typeof event;
+    event = stripeClient.webhooks.constructEvent(rawBody, sig, secret) as unknown as typeof event;
   } catch {
     return c.json({ error: 'Invalid signature' }, 400);
   }

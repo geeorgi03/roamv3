@@ -16,7 +16,7 @@ import { useSession } from '../../../lib/hooks/useSession';
 import { supabase } from '../../../lib/supabase';
 import type { MusicTrack, BeatGridEntry, SectionEntry } from '@roam/types';
 
-const API_BASE = process.env.EXPO_PUBLIC_API_URL ?? 'http://localhost:3001';
+import { API_BASE } from '../../../lib/api';
 const PX_PER_MS = 0.1;
 const SLIDER_MIN = -200;
 const SLIDER_MAX = 200;
@@ -59,6 +59,7 @@ export default function BeatGridScreen() {
 
   useEffect(() => {
     if (!musicTrack?.storage_path) return;
+    if (!supabase) return;
     const { data } = supabase.storage.from('audio').getPublicUrl(musicTrack.storage_path);
     const uri = data.publicUrl;
     let mounted = true;

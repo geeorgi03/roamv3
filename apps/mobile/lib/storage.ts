@@ -1,14 +1,13 @@
-import { MMKV } from 'react-native-mmkv';
+import type { MMKV } from 'react-native-mmkv';
 import type { QueueItem } from '../services/uploadQueue';
 
-// TODO(boot): wrapped in try/catch so a missing/unlinked MMKV native module doesn't
-// crash the uploadQueue service at import time. Falls back to no-op storage.
-let storage: MMKV;
+let storage: MMKV | null = null;
 try {
-  storage = new MMKV({ id: 'roam-store' });
+  // eslint-disable-next-line @typescript-eslint/no-var-requires
+  const { MMKV: MMKVClass } = require('react-native-mmkv') as typeof import('react-native-mmkv');
+  storage = new MMKVClass({ id: 'roam-store' });
 } catch (e) {
   console.error('[storage] MMKV init failed, upload queue will not persist:', e);
-  storage = null as unknown as MMKV;
 }
 export { storage };
 

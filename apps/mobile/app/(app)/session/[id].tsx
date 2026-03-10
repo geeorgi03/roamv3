@@ -12,7 +12,7 @@ import { theme } from '../../../lib/theme';
 import { useMusicTrackStatus } from '../../../lib/hooks/useMusicTrackStatus';
 import { useClips } from '../../../lib/hooks/useClips';
 import { useSession } from '../../../lib/hooks/useSession';
-import BottomSheet, { type BottomSheetMethods } from '@gorhom/bottom-sheet';
+import BottomSheet from '@gorhom/bottom-sheet';
 import { ShareSheet } from '../../../components/ShareSheet';
 import { CaptureSheet } from '../../../components/CaptureSheet';
 import { ClipCard } from '../../../components/ClipCard';
@@ -23,7 +23,7 @@ import { saveClip } from '../../../lib/saveClip';
 import { storage } from '../../../lib/storage';
 import type { ClipRow } from '../../../lib/database';
 
-const API_BASE = process.env.EXPO_PUBLIC_API_URL ?? 'http://localhost:3001';
+import { API_BASE } from '../../../lib/api';
 const PENDING_CLIP_KEY = 'pending_camera_clip';
 
 export default function SessionWorkspaceScreen() {
@@ -32,10 +32,10 @@ export default function SessionWorkspaceScreen() {
   const navigation = useNavigation();
   const { session } = useSession();
   const { musicTrack } = useMusicTrackStatus(id ?? null);
-  const shareSheetRef = useRef<BottomSheetMethods | null>(null);
-  const captureSheetRef = useRef<BottomSheetMethods | null>(null);
-  const tagSheetRef = useRef<BottomSheetMethods | null>(null);
-  const paywallSheetRef = useRef<BottomSheetMethods | null>(null);
+  const shareSheetRef = useRef<BottomSheet | null>(null);
+  const captureSheetRef = useRef<BottomSheet | null>(null);
+  const tagSheetRef = useRef<BottomSheet | null>(null);
+  const paywallSheetRef = useRef<BottomSheet | null>(null);
   const openPaywall = useCallback(() => {
     paywallSheetRef.current?.snapToIndex(0);
   }, []);
@@ -47,7 +47,7 @@ export default function SessionWorkspaceScreen() {
 
   useFocusEffect(
     useCallback(() => {
-      const raw = storage.getString(PENDING_CLIP_KEY);
+      const raw = storage?.getString(PENDING_CLIP_KEY);
       if (!raw || !session?.access_token || !id) return;
       const run = async () => {
         try {
@@ -55,12 +55,11 @@ export default function SessionWorkspaceScreen() {
           if (parsed.sessionId !== id) return;
           const result = await saveClip(id, parsed.uri, 'Clip', session.access_token);
           if (result.ok) {
-            storage.delete(PENDING_CLIP_KEY);
+            storage?.delete(PENDING_CLIP_KEY);
             refresh();
           }
         } catch {
-          // Invalid pending clip data; clear to avoid repeated failures
-          storage.delete(PENDING_CLIP_KEY);
+          storage?.delete(PENDING_CLIP_KEY);
         }
       };
       run();
@@ -145,7 +144,7 @@ export default function SessionWorkspaceScreen() {
   const handleGallery = async () => {
     if (!id || !session?.access_token) return;
     const result = await ImagePicker.launchImageLibraryAsync({
-      mediaTypes: ['videos'],
+      mediaTypes: ImagePicker.MediaTypeOptions.Videos,
       allowsMultipleSelection: true,
       selectionLimit: 5,
     });

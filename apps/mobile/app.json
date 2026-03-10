@@ -22,6 +22,7 @@
         "foregroundImage": "./assets/adaptive-icon.png",
         "backgroundColor": "#111111"
       },
+      "backgroundColor": "#111111",
       "permissions": [
         "android.permission.CAMERA",
         "android.permission.RECORD_AUDIO"
@@ -44,8 +45,9 @@
         "root": "app"
       },
       "eas": {
-        "projectId": "96524f01-8def-413a-822f-37d1bcd21cbc"
+        "projectId": "798b21ab-300c-49ce-835e-2db58064609a"
       }
-    }
+    },
+    "owner": "georgii08"
   }
 }

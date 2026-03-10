@@ -16,7 +16,7 @@ import { ClipCard } from '../../components/ClipCard';
 import type { ClipRow } from '../../lib/database';
 import { useSession } from '../../lib/hooks/useSession';
 
-const API_BASE = process.env.EXPO_PUBLIC_API_URL ?? 'http://localhost:3001';
+import { API_BASE } from '../../lib/api';
 
 const STYLES = ['Hip-hop', 'Contemporary', 'Ballet', 'Jazz', 'Fusion', 'Other'] as const;
 const ENERGY_LEVELS = ['Low', 'Medium', 'High', 'Explosive'] as const;

@@ -8,7 +8,7 @@ import {
 } from 'react-native';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { CameraView, useCameraPermissions, useMicrophonePermissions } from 'expo-camera';
-import { Video } from 'expo-av';
+import { Video, ResizeMode } from 'expo-av';
 import { theme } from '../../../lib/theme';
 import { storage } from '../../../lib/storage';
 
@@ -52,7 +52,7 @@ export default function CameraScreen() {
 
   const handleSave = () => {
     if (recordedUri && sessionId) {
-      storage.set(PENDING_CLIP_KEY, JSON.stringify({ sessionId, uri: recordedUri }));
+      storage?.set(PENDING_CLIP_KEY, JSON.stringify({ sessionId, uri: recordedUri }));
       router.back();
     }
   };
@@ -81,7 +81,7 @@ export default function CameraScreen() {
           useNativeControls={false}
           shouldPlay
           isLooping
-          resizeMode="contain"
+          resizeMode={ResizeMode.CONTAIN}
         />
         <View style={styles.previewControls}>
           <TouchableOpacity style={styles.outlineButton} onPress={handleRetake}>

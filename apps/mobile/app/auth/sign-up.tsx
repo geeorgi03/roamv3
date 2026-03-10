@@ -10,6 +10,7 @@ import {
   ActivityIndicator,
 } from 'react-native';
 import { router } from 'expo-router';
+import { makeRedirectUri } from 'expo-auth-session';
 import { useSupabaseSafe } from '../../lib/hooks/useSupabaseSafe';
 import { theme } from '../../lib/theme';
 import { setDevBypassAuth } from '../../lib/devBypassAuth';
@@ -27,7 +28,12 @@ export default function SignUpScreen() {
     setError(null);
     setMessage(null);
     setLoading(true);
-    const { error: e } = await supabase.auth.signUp({ email, password });
+    const redirectTo = makeRedirectUri({ path: 'auth/callback' });
+    const { error: e } = await supabase.auth.signUp({
+      email,
+      password,
+      options: { emailRedirectTo: redirectTo },
+    });
     setLoading(false);
     if (e) {
       setError(e.message);

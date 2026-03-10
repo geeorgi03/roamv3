@@ -2,8 +2,7 @@ import NetInfo from '@react-native-community/netinfo';
 import { getTusUrls, getUploadQueue, setTusUrls, setUploadQueue } from '../lib/storage';
 import { updateClipServerData, updateClipStatus as updateClipStatusDb } from '../lib/database';
 import { uploadClipToMux, UploadAbortedError } from '../lib/upload';
-
-const API_BASE = process.env.EXPO_PUBLIC_API_URL ?? 'http://localhost:3001';
+import { API_BASE } from '../lib/api';
 
 export interface QueueItem {
   local_id: string;
