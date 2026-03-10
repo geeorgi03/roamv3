@@ -9,7 +9,20 @@ import {
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { Video, AVPlaybackStatus } from 'expo-av';
 import Slider from '@react-native-community/slider';
-import { GestureDetector, Gesture } from 'react-native-gesture-handler';
+// Lazy require: a native-module init failure must not prevent route discovery
+let GestureDetector: React.ComponentType<{ gesture: unknown; children: React.ReactNode }> =
+  ({ children }) => <>{children}</>;
+let Gesture: { Pan: () => { onEnd: (fn: (e: { translationX: number }) => void) => unknown } } = {
+  Pan: () => ({ onEnd: () => ({}) }),
+};
+try {
+  // eslint-disable-next-line @typescript-eslint/no-var-requires
+  const gh = require('react-native-gesture-handler') as typeof import('react-native-gesture-handler');
+  GestureDetector = gh.GestureDetector as unknown as typeof GestureDetector;
+  Gesture = gh.Gesture as unknown as typeof Gesture;
+} catch (_) {
+  // gesture handler unavailable in this environment — swipe gestures disabled
+}
 import { theme } from '../../../lib/theme';
 import { useClips } from '../../../lib/hooks/useClips';
 import { useSession } from '../../../lib/hooks/useSession';

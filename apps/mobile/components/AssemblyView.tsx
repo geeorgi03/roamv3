@@ -9,13 +9,27 @@ import {
   Image,
   Dimensions,
 } from 'react-native';
-import { GestureDetector, Gesture } from 'react-native-gesture-handler';
-import { theme } from '../../../lib/theme';
-import { useSession } from '../../../lib/hooks/useSession';
-import { useMusicTrackStatus } from '../../../lib/hooks/useMusicTrackStatus';
-import { useClips } from '../../../lib/hooks/useClips';
+import { theme } from '../lib/theme';
+import { useSession } from '../lib/hooks/useSession';
+import { useMusicTrackStatus } from '../lib/hooks/useMusicTrackStatus';
+import { useClips } from '../lib/hooks/useClips';
 import type { SectionClip, SectionEntry } from '@roam/types';
-import type { ClipRow } from '../../../lib/database';
+import type { ClipRow } from '../lib/database';
+
+// Lazy require so a native-module init error doesn't prevent route discovery
+let GestureDetector: React.ComponentType<{ gesture: unknown; children: React.ReactNode }> =
+  ({ children }) => <>{children}</>;
+let Gesture: { Pan: () => { onBegin: (fn: (e: unknown) => unknown) => unknown; onUpdate: (fn: (e: unknown) => unknown) => unknown; onEnd: (fn: (e: unknown) => void) => unknown } } = {
+  Pan: () => ({ onBegin: () => ({}), onUpdate: () => ({}), onEnd: () => ({}) }),
+};
+try {
+  // eslint-disable-next-line @typescript-eslint/no-var-requires
+  const gh = require('react-native-gesture-handler') as typeof import('react-native-gesture-handler');
+  GestureDetector = gh.GestureDetector as unknown as typeof GestureDetector;
+  Gesture = gh.Gesture as unknown as typeof Gesture;
+} catch (_) {
+  // gesture handler unavailable — drag-to-assign disabled
+}
 
 const API_BASE = process.env.EXPO_PUBLIC_API_URL ?? 'http://localhost:3001';
 const { width: SCREEN_WIDTH } = Dimensions.get('window');

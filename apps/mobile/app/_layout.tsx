@@ -13,7 +13,7 @@ const MINIMAL_BOOT_TEST = false;
 import React from 'react';
 import { AppState, ActivityIndicator, StyleSheet, View, Text, TouchableOpacity } from 'react-native';
 import { useEffect, useState, useRef } from 'react';
-import { Redirect, Stack, usePathname } from 'expo-router';
+import { Stack, usePathname, useRootNavigationState, router } from 'expo-router';
 import * as SplashScreen from 'expo-splash-screen';
 import Toast from 'react-native-toast-message';
 import { useSession } from '../lib/hooks/useSession';
@@ -219,6 +219,29 @@ function RootNavigator() {
     };
   }, []);
 
+  const navReady = !!useRootNavigationState()?.key;
+
+  // Use router.replace inside useEffect — never <Redirect> — to avoid
+  // "navigate before mounting Root Layout" errors. Defer by one frame so
+  // the navigator container is fully committed before we push a route.
+  useEffect(() => {
+    if (!navReady || loading) return;
+    if (error && !ignoreSessionError) return;
+
+    const t = setTimeout(() => {
+      if (!session && !skipToAuth && !devBypass) {
+        if (!pathname || !pathname.startsWith('/auth')) {
+          router.replace('/auth/sign-up');
+        }
+        return;
+      }
+      if (session && pathname?.startsWith('/auth')) {
+        router.replace('/(app)');
+      }
+    }, 0);
+    return () => clearTimeout(t);
+  }, [navReady, loading, session, skipToAuth, devBypass, error, ignoreSessionError, pathname]);
+
   if (loading && !skipToAuth) {
     return (
       <View style={styles.loading}>
@@ -236,7 +259,6 @@ function RootNavigator() {
     const isConfigError =
       error.message.includes('EXPO_PUBLIC_SUPABASE_URL') ||
       error.message.includes('EXPO_PUBLIC_SUPABASE_ANON_KEY');
-    const isTimeout = error.message.includes('Loading timed out');
     return (
       <View style={styles.loading}>
         <Text style={styles.errorTitle}>Something went wrong</Text>
@@ -251,25 +273,6 @@ function RootNavigator() {
         </TouchableOpacity>
       </View>
     );
-  }
-
-  if (!session && !skipToAuth && !devBypass) {
-    // Guard: always redirect to auth when not on an auth route.
-    // The pathname null check prevents loading the app stack before expo-router
-    // has resolved the initial route — which could mount BottomSheet before Reanimated is ready.
-    if (!pathname || !pathname.startsWith('/auth')) {
-      return <Redirect href="/auth/sign-up" />;
-    }
-    return (
-      <>
-        <Stack />
-        <Toast />
-      </>
-    );
-  }
-
-  if (pathname?.startsWith('/auth')) {
-    return <Redirect href="/(app)" />;
   }
 
   return (

@@ -18,7 +18,7 @@ import { CaptureSheet } from '../../../components/CaptureSheet';
 import { ClipCard } from '../../../components/ClipCard';
 import { TagSheet } from '../../../components/TagSheet';
 import { PaywallSheet } from '../../../components/PaywallSheet';
-import { AssemblyView } from './assembly';
+import { AssemblyView } from '../../../components/AssemblyView';
 import { saveClip } from '../../../lib/saveClip';
 import { storage } from '../../../lib/storage';
 import type { ClipRow } from '../../../lib/database';

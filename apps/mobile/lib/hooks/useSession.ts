@@ -24,8 +24,11 @@ export function useSession() {
 
     console.log('[BOOT] auth restore: importing supabase module');
     import('../supabase')
-      .then(({ supabase }) => {
+      .then(({ supabase, supabaseInitError }) => {
         if (!mounted) return null;
+        if (!supabase) {
+          throw supabaseInitError ?? new Error('Supabase not configured. Set EXPO_PUBLIC_SUPABASE_URL and EXPO_PUBLIC_SUPABASE_ANON_KEY in apps/mobile/.env.local');
+        }
         console.log('[BOOT] supabase init done');
         const { data } = supabase.auth.onAuthStateChange((_event, s) => {
           if (mounted) setSession(s);
