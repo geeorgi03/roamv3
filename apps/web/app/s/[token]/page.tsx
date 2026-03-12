@@ -159,6 +159,7 @@ export default async function SharedSessionPage({
                   }}
                   feedbackOpen={openFeedbackClipIds.has(clip.id)}
                   clipId={clip.id}
+                  shareToken={token}
                 />
               ) : clip.upload_status === 'processing' ? (
                 <div

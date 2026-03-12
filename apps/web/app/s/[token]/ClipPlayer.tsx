@@ -17,6 +17,7 @@ export interface ClipPlayerProps {
   };
   feedbackOpen?: boolean;
   clipId?: string;
+  shareToken: string;
 }
 
 export function ClipPlayer({
@@ -26,6 +27,7 @@ export function ClipPlayer({
   tags,
   feedbackOpen = false,
   clipId,
+  shareToken,
 }: ClipPlayerProps) {
   const [expanded, setExpanded] = useState(false);
   const [submittedComments, setSubmittedComments] = useState<ClipComment[]>([]);
@@ -55,6 +57,7 @@ export function ClipPlayer({
           timecode_ms: parseInt(timecodeMs, 10) || 0,
           text: text.trim(),
           commenter_name: name.trim() || undefined,
+          share_token: shareToken,
         }),
       });
       const data = await res.json();
