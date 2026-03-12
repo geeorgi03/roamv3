@@ -1,6 +1,6 @@
 'use client';
 
-import { useState } from 'react';
+import React, { useState } from 'react';
 import MuxPlayer from '@mux/mux-player-react';
 import type { ClipComment } from '@roam/types';
 
@@ -43,7 +43,7 @@ export function ClipPlayer({
     setTimecodeMs(String(currentTimeMs));
   };
 
-  const handleSubmitFeedback = async (e: React.FormEvent) => {
+  const handleSubmitFeedback = async (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();
     if (!clipId || !text.trim()) return;
     setError(null);
@@ -122,8 +122,8 @@ export function ClipPlayer({
           playbackId={playbackId}
           streamType="on-demand"
           className="w-full h-full"
-          onTimeUpdate={(e) => {
-            const t = (e.target as HTMLMediaElement)?.currentTime;
+          onTimeUpdate={(e: React.SyntheticEvent<HTMLMediaElement>) => {
+            const t = e.currentTarget.currentTime;
             if (typeof t === 'number') setCurrentTimeMs(Math.round(t * 1000));
           }}
         />
