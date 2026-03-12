@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import {
   View,
   Text,
@@ -13,6 +13,7 @@ import { useSession } from '../lib/hooks/useSession';
 import { updateClipTags } from '../lib/database';
 import type { ClipRow } from '../lib/database';
 import { API_BASE } from '../lib/api';
+import { TagHistorySheet } from './TagHistorySheet';
 
 const STYLES = ['Hip-hop', 'Contemporary', 'Ballet', 'Jazz', 'Fusion', 'Other'] as const;
 const ENERGY_LEVELS = ['Low', 'Medium', 'High', 'Explosive'] as const;
@@ -32,6 +33,7 @@ export function TagSheet({
   musicTrackBpm,
 }: TagSheetProps) {
   const { session } = useSession();
+  const historySheetRef = useRef<BottomSheet | null>(null);
   const [moveName, setMoveName] = useState('');
   const [style, setStyle] = useState<string | null>(null);
   const [energy, setEnergy] = useState<string | null>(null);
@@ -110,6 +112,7 @@ export function TagSheet({
   }
 
   return (
+    <>
     <BottomSheet
       ref={bottomSheetRef as React.RefObject<BottomSheet>}
       index={-1}
@@ -119,7 +122,15 @@ export function TagSheet({
       handleIndicatorStyle={styles.handle}
     >
       <View style={styles.content}>
-        <Text style={styles.title}>Edit tags</Text>
+        <View style={styles.headerRow}>
+          <Text style={styles.title}>Edit tags</Text>
+          <TouchableOpacity
+            onPress={() => historySheetRef.current?.expand()}
+            style={styles.historyBtn}
+          >
+            <Text style={styles.historyBtnText}>History</Text>
+          </TouchableOpacity>
+        </View>
 
         <Text style={styles.label}>Move name</Text>
         <TextInput
@@ -207,6 +218,20 @@ export function TagSheet({
         </TouchableOpacity>
       </View>
     </BottomSheet>
+    <TagHistorySheet
+      clip={clip}
+      bottomSheetRef={historySheetRef}
+      onRestored={(updatedClip) => {
+        setMoveName(updatedClip.move_name ?? '');
+        setStyle(updatedClip.style ?? null);
+        setEnergy(updatedClip.energy ?? null);
+        setDifficulty(updatedClip.difficulty ?? null);
+        setBpm(updatedClip.bpm != null ? String(updatedClip.bpm) : '');
+        setNotes(updatedClip.notes ?? '');
+        onSaved(updatedClip);
+      }}
+    />
+  </>
   );
 }
 
@@ -226,6 +251,24 @@ const styles = StyleSheet.create({
     fontWeight: '700',
     color: theme.textPrimary,
     marginBottom: 16,
+  },
+  headerRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: 16,
+  },
+  historyBtn: {
+    paddingVertical: 6,
+    paddingHorizontal: 12,
+    borderRadius: theme.borderRadius,
+    borderWidth: 1,
+    borderColor: theme.textSecondary,
+  },
+  historyBtnText: {
+    color: theme.textSecondary,
+    fontSize: 13,
+    fontWeight: '600',
   },
   label: {
     fontSize: 14,

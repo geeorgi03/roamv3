@@ -1,4 +1,4 @@
-import React, { useState, useRef } from 'react';
+import React, { useMemo, useState, useRef } from 'react';
 import {
   View,
   Text,
@@ -9,24 +9,34 @@ import {
   Dimensions,
 } from 'react-native';
 import { GestureDetector, Gesture } from 'react-native-gesture-handler';
-import type { ClipAnnotation, AnnotationType } from '@roam/types';
+import Svg, { Circle as SvgCircle, Line as SvgLine, Polygon as SvgPolygon } from 'react-native-svg';
+import type { ClipAnnotation, AnnotationType, CirclePayload } from '@roam/types';
 
 const { width: SCREEN_WIDTH } = Dimensions.get('window');
 
+export type VideoContentRect = {
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+};
+
 export interface AnnotationOverlayProps {
   annotations: ClipAnnotation[];
-  frameWidth: number;
-  frameHeight: number;
+  containerWidth: number;
+  containerHeight: number;
+  videoRect: VideoContentRect;
   activeTool: AnnotationType;
   onPlaceText: (x: number, y: number, text: string) => void;
   onPlaceArrow: (x1: number, y1: number, x2: number, y2: number) => void;
-  onPlaceCircle: (x: number, y: number, r: number) => void;
+  onPlaceCircle: (cx: number, cy: number, r: number) => void;
 }
 
 export function AnnotationOverlay({
   annotations,
-  frameWidth,
-  frameHeight,
+  containerWidth,
+  containerHeight,
+  videoRect,
   activeTool,
   onPlaceText,
   onPlaceArrow,
@@ -40,8 +50,9 @@ export function AnnotationOverlay({
   const circleRadiusRef = useRef(0);
 
   const handlePress = (e: { nativeEvent: { locationX: number; locationY: number } }) => {
-    const x = e.nativeEvent.locationX / frameWidth;
-    const y = e.nativeEvent.locationY / frameHeight;
+    if (videoRect.width <= 0 || videoRect.height <= 0) return;
+    const x = e.nativeEvent.locationX / videoRect.width;
+    const y = e.nativeEvent.locationY / videoRect.height;
     if (activeTool === 'text') {
       setTextModal({ x, y });
       setTextValue('');
@@ -66,7 +77,8 @@ export function AnnotationOverlay({
     .enabled(activeTool === 'circle' && !!circleStart)
     .onUpdate((e) => {
       if (circleStart) {
-        const r = Math.sqrt(e.translationX ** 2 + e.translationY ** 2) / frameWidth;
+        const denom = videoRect.width || 1;
+        const r = Math.sqrt(e.translationX ** 2 + e.translationY ** 2) / denom;
         circleRadiusRef.current = r;
         setCircleRadius(r);
       }
@@ -88,104 +100,157 @@ export function AnnotationOverlay({
     }
   };
 
+  const arrowSvgShapes = useMemo(() => {
+    const stroke = '#b8860b';
+    const strokeWidth = 2;
+    const headLen = 14;
+    const headWidth = 9;
+
+    const shapes: Array<
+      | { kind: 'line'; key: string; x1: number; y1: number; x2: number; y2: number }
+      | { kind: 'head'; key: string; points: string }
+    > = [];
+
+    for (const a of annotations) {
+      if (a.type !== 'arrow') continue;
+      const p = a.payload as { x1: number; y1: number; x2: number; y2: number };
+      const x1 = p.x1 * videoRect.width;
+      const y1 = p.y1 * videoRect.height;
+      const x2 = p.x2 * videoRect.width;
+      const y2 = p.y2 * videoRect.height;
+      const dx = x2 - x1;
+      const dy = y2 - y1;
+      const len = Math.sqrt(dx * dx + dy * dy);
+      if (!len || len < 2) continue;
+
+      const ux = dx / len;
+      const uy = dy / len;
+      const px = -uy;
+      const py = ux;
+
+      const tipX = x2;
+      const tipY = y2;
+      const baseX = tipX - ux * headLen;
+      const baseY = tipY - uy * headLen;
+      const leftX = baseX + px * headWidth;
+      const leftY = baseY + py * headWidth;
+      const rightX = baseX - px * headWidth;
+      const rightY = baseY - py * headWidth;
+
+      shapes.push({ kind: 'line', key: `${a.id}-line`, x1, y1, x2, y2 });
+      shapes.push({
+        kind: 'head',
+        key: `${a.id}-head`,
+        points: `${tipX},${tipY} ${leftX},${leftY} ${rightX},${rightY}`,
+      });
+    }
+
+    return { shapes, stroke, strokeWidth };
+  }, [annotations, videoRect.width, videoRect.height]);
+
   return (
     <GestureDetector gesture={panGesture}>
-      <View style={[StyleSheet.absoluteFill, { width: frameWidth, height: frameHeight }]}>
-        {annotations.map((a) => {
-          if (a.type === 'text') {
-            const p = a.payload as { x: number; y: number; text: string };
-            return (
-              <View
-                key={a.id}
-                style={[
-                  styles.textLabel,
-                  {
-                    left: p.x * frameWidth - 40,
-                    top: p.y * frameHeight - 12,
-                  },
-                ]}
-              >
-                <Text style={styles.textLabelText} numberOfLines={2}>
-                  {p.text}
-                </Text>
-              </View>
-            );
-          }
-          if (a.type === 'arrow') {
-            const p = a.payload as { x1: number; y1: number; x2: number; y2: number };
-            const dx = (p.x2 - p.x1) * frameWidth;
-            const dy = (p.y2 - p.y1) * frameHeight;
-            const len = Math.sqrt(dx * dx + dy * dy) || 1;
-            const angle = Math.atan2(dy, dx);
-            return (
-              <View
-                key={a.id}
-                style={[
-                  styles.arrowLine,
-                  {
-                    left: p.x1 * frameWidth,
-                    top: p.y1 * frameHeight,
-                    width: len,
-                    transform: [{ rotate: `${angle}rad` }],
-                  },
-                ]}
+      <View style={[StyleSheet.absoluteFill, { width: containerWidth, height: containerHeight }]}>
+        <View
+          style={[
+            styles.videoContentLayer,
+            { left: videoRect.x, top: videoRect.y, width: videoRect.width, height: videoRect.height },
+          ]}
+        >
+          <Svg
+            width={videoRect.width}
+            height={videoRect.height}
+            style={StyleSheet.absoluteFill}
+            pointerEvents="none"
+          >
+            {arrowSvgShapes.shapes.map((s) => {
+              if (s.kind === 'line') {
+                return (
+                  <SvgLine
+                    key={s.key}
+                    x1={s.x1}
+                    y1={s.y1}
+                    x2={s.x2}
+                    y2={s.y2}
+                    stroke={arrowSvgShapes.stroke}
+                    strokeWidth={arrowSvgShapes.strokeWidth}
+                  />
+                );
+              }
+              return (
+                <SvgPolygon key={s.key} points={s.points} fill={arrowSvgShapes.stroke} />
+              );
+            })}
+
+            {annotations
+              .filter((a) => a.type === 'circle')
+              .map((a) => {
+                const p = a.payload as unknown as CirclePayload;
+                const cx = p.cx * videoRect.width;
+                const cy = p.cy * videoRect.height;
+                const r = p.r * videoRect.width;
+                return (
+                  <SvgCircle
+                    key={a.id}
+                    cx={cx}
+                    cy={cy}
+                    r={r}
+                    stroke="#b8860b"
+                    strokeWidth={2}
+                    fill="transparent"
+                  />
+                );
+              })}
+
+            {circleStart && circleRadius > 0 ? (
+              <SvgCircle
+                cx={circleStart.x * videoRect.width}
+                cy={circleStart.y * videoRect.height}
+                r={circleRadius * videoRect.width}
+                stroke="#b8860b"
+                strokeWidth={2}
+                fill="transparent"
+                strokeDasharray="6 6"
               />
-            );
-          }
-          if (a.type === 'circle') {
-            const p = a.payload as unknown as { x: number; y: number; r: number };
-            const r = p.r * frameWidth;
-            return (
-              <View
-                key={a.id}
-                style={[
-                  styles.circle,
-                  {
-                    left: p.x * frameWidth - r,
-                    top: p.y * frameHeight - r,
-                    width: r * 2,
-                    height: r * 2,
-                    borderRadius: r,
-                  },
-                ]}
-              />
-            );
-          }
-          return null;
-        })}
+            ) : null}
+          </Svg>
 
-        {arrowStart && (
-          <View
-            style={[
-              styles.arrowDot,
-              {
-                left: arrowStart.x * frameWidth - 6,
-                top: arrowStart.y * frameHeight - 6,
-              },
-            ]}
-          />
-        )}
+          {annotations
+            .filter((a) => a.type === 'text')
+            .map((a) => {
+              const p = a.payload as { x: number; y: number; text: string };
+              return (
+                <View
+                  key={a.id}
+                  style={[
+                    styles.textLabel,
+                    {
+                      left: p.x * videoRect.width - 40,
+                      top: p.y * videoRect.height - 12,
+                    },
+                  ]}
+                >
+                  <Text style={styles.textLabelText} numberOfLines={2}>
+                    {p.text}
+                  </Text>
+                </View>
+              );
+            })}
 
-        {circleStart && (
-          <View
-            style={[
-              styles.circlePreview,
-              {
-                left: circleStart.x * frameWidth - circleRadius * frameWidth,
-                top: circleStart.y * frameHeight - circleRadius * frameWidth,
-                width: circleRadius * frameWidth * 2,
-                height: circleRadius * frameWidth * 2,
-                borderRadius: circleRadius * frameWidth,
-              },
-            ]}
-          />
-        )}
+          {arrowStart && (
+            <View
+              style={[
+                styles.arrowDot,
+                {
+                  left: arrowStart.x * videoRect.width - 6,
+                  top: arrowStart.y * videoRect.height - 6,
+                },
+              ]}
+            />
+          )}
 
-        <TouchableOpacity
-          style={StyleSheet.absoluteFill}
-          onPress={handlePress}
-          activeOpacity={1}
-        />
+          <TouchableOpacity style={StyleSheet.absoluteFill} onPress={handlePress} activeOpacity={1} />
+        </View>
 
         <Modal
           visible={!!textModal}
@@ -220,6 +285,9 @@ export function AnnotationOverlay({
 }
 
 const styles = StyleSheet.create({
+  videoContentLayer: {
+    position: 'absolute',
+  },
   textLabel: {
     position: 'absolute',
     maxWidth: 120,
@@ -231,29 +299,12 @@ const styles = StyleSheet.create({
     color: '#fff',
     fontSize: 12,
   },
-  arrowLine: {
-    position: 'absolute',
-    height: 2,
-    backgroundColor: '#b8860b',
-  },
   arrowDot: {
     position: 'absolute',
     width: 12,
     height: 12,
     borderRadius: 6,
     backgroundColor: '#b8860b',
-  },
-  circle: {
-    position: 'absolute',
-    borderWidth: 2,
-    borderColor: '#b8860b',
-    backgroundColor: 'transparent',
-  },
-  circlePreview: {
-    position: 'absolute',
-    borderWidth: 2,
-    borderColor: '#b8860b',
-    backgroundColor: 'transparent',
   },
   modalBackdrop: {
     flex: 1,

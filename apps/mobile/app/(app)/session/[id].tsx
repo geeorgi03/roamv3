@@ -18,7 +18,7 @@ import { CaptureSheet } from '../../../components/CaptureSheet';
 import { ClipCard } from '../../../components/ClipCard';
 import { TagSheet } from '../../../components/TagSheet';
 import { PaywallSheet } from '../../../components/PaywallSheet';
-import { AssemblyView } from '../../../components/AssemblyView';
+import { AssemblyCanvas } from '../../../components/AssemblyCanvas';
 import { saveClip } from '../../../lib/saveClip';
 import { storage } from '../../../lib/storage';
 import type { ClipRow } from '../../../lib/database';
@@ -43,7 +43,12 @@ export default function SessionWorkspaceScreen() {
   const [sessionName, setSessionName] = useState('Session');
   const [selectedClip, setSelectedClip] = useState<ClipRow | null>(null);
   const [commentCounts, setCommentCounts] = useState<Record<string, number>>({});
-  const [activeTab, setActiveTab] = useState<'clips' | 'assembly'>('clips');
+  const [activeTab, setActiveTab] = useState<'clips' | 'beatGrid' | 'assembly'>('clips');
+  const hasSections = (musicTrack?.sections?.length ?? 0) > 0;
+
+  useEffect(() => {
+    if (!hasSections && activeTab === 'assembly') setActiveTab('clips');
+  }, [hasSections, activeTab]);
 
   useFocusEffect(
     useCallback(() => {
@@ -159,6 +164,11 @@ export default function SessionWorkspaceScreen() {
   };
 
   const untaggedClipCount = clips.filter((c) => !c.move_name && !c.style).length;
+  const canOpenBeatGrid =
+    !!musicTrack &&
+    musicTrack.source_type === 'upload' &&
+    musicTrack.analysis_status === 'complete' &&
+    !!musicTrack.storage_path;
 
   useEffect(() => {
     if (!id || !session?.access_token) return;
@@ -205,40 +215,67 @@ export default function SessionWorkspaceScreen() {
           </Text>
         </TouchableOpacity>
         <TouchableOpacity
-          style={[styles.tab, activeTab === 'assembly' && styles.tabActive]}
-          onPress={() => setActiveTab('assembly')}
+          style={[styles.tab, activeTab === 'beatGrid' && styles.tabActive]}
+          onPress={() => setActiveTab('beatGrid')}
         >
-          <Text style={[styles.tabText, activeTab === 'assembly' && styles.tabTextActive]}>
-            Assembly
+          <Text style={[styles.tabText, activeTab === 'beatGrid' && styles.tabTextActive]}>
+            Beat Grid
           </Text>
         </TouchableOpacity>
+        {hasSections && (
+          <TouchableOpacity
+            style={[styles.tab, activeTab === 'assembly' && styles.tabActive]}
+            onPress={() => setActiveTab('assembly')}
+          >
+            <Text style={[styles.tabText, activeTab === 'assembly' && styles.tabTextActive]}>
+              Assembly
+            </Text>
+          </TouchableOpacity>
+        )}
       </View>
 
       {activeTab === 'assembly' ? (
-        <AssemblyView
-          sessionId={id ?? ''}
-          onBack={() => setActiveTab('clips')}
-        />
+        <AssemblyCanvas sessionId={id ?? ''} />
+      ) : activeTab === 'beatGrid' ? (
+        <View style={styles.beatGridWrap}>
+          <Text style={styles.beatGridTitle}>Beat Grid</Text>
+          <Text style={styles.beatGridSub}>
+            {canOpenBeatGrid
+              ? 'Open the alignment editor for this session’s music.'
+              : musicTrack
+                ? 'Finish music alignment to unlock Beat Grid.'
+                : 'Set up music to unlock Beat Grid.'}
+          </Text>
+          <TouchableOpacity
+            style={styles.beatGridBtn}
+            onPress={handleMusicPress}
+            activeOpacity={0.85}
+          >
+            <Text style={styles.beatGridBtnText}>
+              {canOpenBeatGrid ? 'Open Beat Grid' : musicTrack ? 'Edit alignment' : 'Set up music'}
+            </Text>
+          </TouchableOpacity>
+        </View>
       ) : (
-      <FlatList
-        data={clips}
-        keyExtractor={(item) => item.local_id}
-        contentContainerStyle={{ paddingBottom: 120 }}
-        ListEmptyComponent={
-          <View style={styles.emptyWrap}>
-            <Text style={styles.placeholderText}>No clips yet — tap + to record</Text>
-          </View>
-        }
-        renderItem={({ item, index }) => (
-          <ClipCard
-            clip={item}
-            onPress={() => openPlayer(index)}
-            onLongPress={() => openTagSheet(item)}
-            onRetry={() => retryClip(item.local_id)}
-            commentCount={item.server_id ? commentCounts[item.server_id] : undefined}
-          />
-        )}
-      />
+        <FlatList
+          data={clips}
+          keyExtractor={(item) => item.local_id}
+          contentContainerStyle={{ paddingBottom: 120 }}
+          ListEmptyComponent={
+            <View style={styles.emptyWrap}>
+              <Text style={styles.placeholderText}>No clips yet — tap + to record</Text>
+            </View>
+          }
+          renderItem={({ item, index }) => (
+            <ClipCard
+              clip={item}
+              onPress={() => openPlayer(index)}
+              onLongPress={() => openTagSheet(item)}
+              onRetry={() => retryClip(item.local_id)}
+              commentCount={item.server_id ? commentCounts[item.server_id] : undefined}
+            />
+          )}
+        />
       )}
       {activeTab === 'clips' && (
         <>
@@ -303,6 +340,38 @@ const styles = StyleSheet.create({
   placeholderText: {
     fontSize: 16,
     color: theme.textSecondary,
+  },
+  beatGridWrap: {
+    flex: 1,
+    padding: 20,
+    justifyContent: 'center',
+    gap: 12,
+  },
+  beatGridTitle: {
+    fontSize: 20,
+    fontWeight: '800',
+    color: theme.textPrimary,
+    textAlign: 'center',
+  },
+  beatGridSub: {
+    fontSize: 14,
+    color: theme.textSecondary,
+    textAlign: 'center',
+    lineHeight: 20,
+  },
+  beatGridBtn: {
+    alignSelf: 'center',
+    paddingVertical: 12,
+    paddingHorizontal: 18,
+    backgroundColor: theme.accent,
+    borderWidth: 1,
+    borderColor: theme.textSecondary,
+    borderRadius: theme.borderRadius,
+  },
+  beatGridBtnText: {
+    fontSize: 16,
+    fontWeight: '700',
+    color: theme.textPrimary,
   },
   tabBar: {
     flexDirection: 'row',

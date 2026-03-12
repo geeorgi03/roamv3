@@ -43,17 +43,17 @@ export default async function SharedSessionPage({
     clips: Clip[];
   };
 
-  const sessionId = session.id;
-  const { data: openFeedback } =
-    sessionId != null
-      ? await supabase
-          .from('feedback_requests')
-          .select('clip_id')
-          .eq('session_id', sessionId)
-          .eq('status', 'open')
-      : { data: [] };
-  const openFeedbackClipIds = new Set(
-    (openFeedback ?? []).map((r: { clip_id: string }) => r.clip_id)
+  const feedbackOpenByClipId = new Map<string, boolean>(
+    await Promise.all(
+      clips.map(async (clip) => {
+        const { data: fr } = await supabase.rpc('get_feedback_request_for_share', {
+          p_token: token,
+          p_clip_id: clip.id,
+        });
+        const status = (fr as { status?: string } | null)?.status;
+        return [clip.id, status === 'open'] as const;
+      })
+    )
   );
 
   let uploadedAudioUrl: string | null = null;
@@ -157,7 +157,7 @@ export default async function SharedSessionPage({
                     energy: clip.energy,
                     difficulty: clip.difficulty,
                   }}
-                  feedbackOpen={openFeedbackClipIds.has(clip.id)}
+                  feedbackOpen={feedbackOpenByClipId.get(clip.id) ?? false}
                   clipId={clip.id}
                   shareToken={token}
                 />

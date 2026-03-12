@@ -9,6 +9,7 @@ import {
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { Video, AVPlaybackStatus, ResizeMode } from 'expo-av';
 import Slider from '@react-native-community/slider';
+import Toast from 'react-native-toast-message';
 // Lazy require: a native-module init failure must not prevent route discovery
 let GestureDetector: React.ComponentType<{ gesture: unknown; children: React.ReactNode }> =
   ({ children }) => <>{children}</>;
@@ -32,6 +33,7 @@ import { supabase } from '../../../lib/supabase';
 import type { ClipRow } from '../../../lib/database';
 import type { ClipComment, ClipAnnotation, AnnotationType } from '@roam/types';
 import { AnnotationOverlay } from '../../../components/AnnotationOverlay';
+import type { VideoContentRect } from '../../../components/AnnotationOverlay';
 
 import { API_BASE } from '../../../lib/api';
 
@@ -78,7 +80,9 @@ export default function ClipPlayerScreen() {
   const [pendingAnnotations, setPendingAnnotations] = useState<
     Array<{ type: AnnotationType; timecode_ms: number; payload: unknown }>
   >([]);
+  const [frozenTimecode, setFrozenTimecode] = useState<number | null>(null);
   const [frameSize, setFrameSize] = useState({ width: 0, height: 0 });
+  const [videoNaturalSize, setVideoNaturalSize] = useState<{ width: number; height: number } | null>(null);
   const videoRef = useRef<Video>(null);
   const tagSheetRef = useRef<BottomSheet | null>(null);
 
@@ -223,6 +227,23 @@ export default function ClipPlayerScreen() {
     setPlaying(status.isPlaying);
   };
 
+  const videoRect: VideoContentRect = React.useMemo(() => {
+    const cw = frameSize.width;
+    const ch = frameSize.height;
+    if (cw <= 0 || ch <= 0) return { x: 0, y: 0, width: 0, height: 0 };
+    if (!videoNaturalSize?.width || !videoNaturalSize?.height) {
+      return { x: 0, y: 0, width: cw, height: ch };
+    }
+    const vw = videoNaturalSize.width;
+    const vh = videoNaturalSize.height;
+    const scale = Math.min(cw / vw, ch / vh);
+    const w = vw * scale;
+    const h = vh * scale;
+    const x = (cw - w) / 2;
+    const y = (ch - h) / 2;
+    return { x, y, width: w, height: h };
+  }, [frameSize.width, frameSize.height, videoNaturalSize?.width, videoNaturalSize?.height]);
+
   const handlePlayPause = async () => {
     if (!videoRef.current) return;
     if (playing) await videoRef.current.pauseAsync();
@@ -271,9 +292,10 @@ export default function ClipPlayerScreen() {
 
   const handleAnnotatePress = useCallback(async () => {
     if (videoRef.current) await videoRef.current.pauseAsync();
-    setAnnotationMode(true);
     setPlaying(false);
-  }, []);
+    setAnnotationMode(true);
+    setFrozenTimecode(positionMillis);
+  }, [positionMillis]);
 
   const handlePlaceText = useCallback(
     (x: number, y: number, text: string) => {
@@ -299,7 +321,7 @@ export default function ClipPlayerScreen() {
     (x: number, y: number, r: number) => {
       setPendingAnnotations((prev) => [
         ...prev,
-        { type: 'circle', timecode_ms: positionMillis, payload: { x, y, r } },
+        { type: 'circle', timecode_ms: positionMillis, payload: { cx: x, cy: y, r } },
       ]);
     },
     [positionMillis]
@@ -308,15 +330,21 @@ export default function ClipPlayerScreen() {
   const handleAnnotationDone = useCallback(async () => {
     if (pendingAnnotations.length === 0) {
       setAnnotationMode(false);
+      setFrozenTimecode(null);
       return;
     }
     if (!clipServerId || !session?.access_token) {
-      setAnnotationMode(false);
+      Toast.show({ type: 'error', text1: 'Unable to save', text2: 'Please sign in and try again.' });
       return;
     }
+
+    const created: ClipAnnotation[] = [];
+    const failed: Array<{ type: AnnotationType; timecode_ms: number; payload: unknown }> = [];
+    let needsRefresh = false;
+
     for (const p of pendingAnnotations) {
       try {
-        await fetch(`${API_BASE}/clips/${clipServerId}/annotations`, {
+        const res = await fetch(`${API_BASE}/clips/${clipServerId}/annotations`, {
           method: 'POST',
           headers: {
             'Content-Type': 'application/json',
@@ -328,29 +356,65 @@ export default function ClipPlayerScreen() {
             payload: p.payload,
           }),
         });
+
+        if (!res.ok) {
+          failed.push(p);
+          continue;
+        }
+
+        try {
+          const data = (await res.json()) as unknown;
+          if (data && typeof data === 'object' && 'id' in (data as Record<string, unknown>)) {
+            created.push(data as ClipAnnotation);
+          } else {
+            needsRefresh = true;
+          }
+        } catch {
+          needsRefresh = true;
+        }
+      } catch {
+        failed.push(p);
+      }
+    }
+
+    if (created.length > 0) {
+      setAnnotations((prev) => [...prev, ...created]);
+    }
+
+    if (needsRefresh) {
+      try {
+        const res = await fetch(`${API_BASE}/clips/${clipServerId}/annotations`, {
+          headers: { Authorization: `Bearer ${session.access_token}` },
+        });
+        if (res.ok) {
+          const data = await res.json();
+          setAnnotations(data as ClipAnnotation[]);
+        }
       } catch {
         // ignore
       }
     }
-    const newAnnotations: ClipAnnotation[] = pendingAnnotations.map((p, i) => ({
-      id: `pending-${i}`,
-      clip_id: clipServerId,
-      timecode_ms: p.timecode_ms,
-      type: p.type,
-      payload: p.payload as ClipAnnotation['payload'],
-      created_at: new Date().toISOString(),
-    }));
-    setAnnotations((prev) => [...prev, ...newAnnotations]);
+
+    if (failed.length > 0) {
+      Toast.show({ type: 'error', text1: 'Some annotations failed to save' });
+      setPendingAnnotations(failed);
+      return;
+    }
+
     setPendingAnnotations([]);
     setAnnotationMode(false);
+    setFrozenTimecode(null);
   }, [clipServerId, session?.access_token, pendingAnnotations]);
 
   const handleAnnotationMarkerPress = useCallback(
     async (tc: number) => {
       if (videoRef.current) {
+        await videoRef.current.pauseAsync();
+        setPlaying(false);
         await videoRef.current.setPositionAsync(tc);
         setPositionMillis(tc);
       }
+      setFrozenTimecode(tc);
       setAnnotationMode(true);
     },
     []
@@ -502,22 +566,46 @@ export default function ClipPlayerScreen() {
             resizeMode={ResizeMode.CONTAIN}
             shouldPlay={playing}
             onPlaybackStatusUpdate={onPlaybackStatusUpdate}
+            onReadyForDisplay={(e) => {
+              const ns = e?.naturalSize;
+              if (!ns?.width || !ns?.height) return;
+              setVideoNaturalSize((prev) =>
+                prev?.width === ns.width && prev?.height === ns.height ? prev : { width: ns.width, height: ns.height }
+              );
+            }}
           />
           {annotationMode && frameSize.width > 0 && frameSize.height > 0 && (
             <AnnotationOverlay
-              annotations={[
-                ...annotations,
-                ...pendingAnnotations.map((p, i) => ({
-                  id: `pending-${i}`,
-                  clip_id: clipServerId!,
-                  timecode_ms: p.timecode_ms,
-                  type: p.type,
-                  payload: p.payload as ClipAnnotation['payload'],
-                  created_at: '',
-                })),
-              ]}
-              frameWidth={frameSize.width}
-              frameHeight={frameSize.height}
+              annotations={
+                frozenTimecode !== null
+                  ? [
+                      ...annotations.filter((a) => a.timecode_ms === frozenTimecode),
+                      ...pendingAnnotations
+                        .filter((p) => p.timecode_ms === frozenTimecode)
+                        .map((p, i) => ({
+                          id: `pending-${i}`,
+                          clip_id: clipServerId!,
+                          timecode_ms: p.timecode_ms,
+                          type: p.type,
+                          payload: p.payload as ClipAnnotation['payload'],
+                          created_at: '',
+                        })),
+                    ]
+                  : [
+                      ...annotations,
+                      ...pendingAnnotations.map((p, i) => ({
+                        id: `pending-${i}`,
+                        clip_id: clipServerId!,
+                        timecode_ms: p.timecode_ms,
+                        type: p.type,
+                        payload: p.payload as ClipAnnotation['payload'],
+                        created_at: '',
+                      })),
+                    ]
+              }
+              containerWidth={frameSize.width}
+              containerHeight={frameSize.height}
+              videoRect={videoRect}
               activeTool={activeTool}
               onPlaceText={handlePlaceText}
               onPlaceArrow={handlePlaceArrow}
