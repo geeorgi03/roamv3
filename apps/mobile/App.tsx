@@ -4,8 +4,11 @@
  */
 import { ExpoRoot } from 'expo-router';
 
-const ctx = require.context('./app', true, /\.(js|jsx|ts|tsx)$/);
+declare const require: {
+  context(path: string, deep?: boolean, filter?: RegExp): unknown;
+};
 
 export default function App() {
+  const ctx = require.context('./app', true, /\.(js|jsx|ts|tsx)$/ as any) as any;
   return <ExpoRoot context={ctx} />;
 }

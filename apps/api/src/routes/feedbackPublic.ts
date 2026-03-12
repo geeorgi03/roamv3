@@ -32,6 +32,13 @@ app.post('/', async (c) => {
     return c.json({ error: 'share_token is required' }, 400);
   }
 
+  const uuidRegex = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+  if (!uuidRegex.test(share_token.trim())) {
+    return c.json({ error: 'Invalid or expired share token' }, 403);
+  }
+
+  const trimmedShareToken = share_token.trim();
+
   const { data: clipRow, error: clipError } = await supabase
     .from('clips')
     .select('id, session_id')
@@ -45,11 +52,11 @@ app.post('/', async (c) => {
   const { data: shareTokenRows, error: tokenError } = await supabase
     .from('share_tokens')
     .select('session_id')
-    .eq('token', share_token)
+    .eq('token', trimmedShareToken)
     .is('revoked_at', null)
     .limit(1);
 
-  if (tokenError) return c.json({ error: tokenError.message }, 500);
+  if (tokenError) return c.json({ error: 'Invalid or expired share token' }, 403);
 
   const shareToken = shareTokenRows?.[0] ?? null;
   if (!shareToken || shareToken.session_id !== clipRow.session_id) {
