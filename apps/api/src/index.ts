@@ -63,8 +63,20 @@ import { billingRoutes } from './routes/billing.js';
 
 const app = new Hono();
 
-app.get('/', (c) => c.json({ name: 'Roam API', version: '0.0.1' }));
-app.get('/health', (c) => c.json({ status: 'ok' }));
+const BUILD_SHA =
+  process.env.RENDER_GIT_COMMIT ||
+  process.env.VERCEL_GIT_COMMIT_SHA ||
+  process.env.GIT_COMMIT ||
+  null;
+
+app.get('/', (c) =>
+  c.json({
+    name: 'Roam API',
+    version: '0.0.2',
+    build: BUILD_SHA,
+  })
+);
+app.get('/health', (c) => c.json({ status: 'ok', build: BUILD_SHA }));
 
 // Mount more specific routes first so /sessions/:id/music and /sessions/:sessionId/clips are matched before /sessions/:id
 app.route('/sessions', musicRoutes);
