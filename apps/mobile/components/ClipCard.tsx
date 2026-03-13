@@ -27,7 +27,15 @@ export function ClipCard({ clip, onPress, onLongPress, onRetry, commentCount }: 
         minute: '2-digit',
       })
     : '';
-  const untagged = !clip.move_name && !clip.style;
+  const hasText = (v: string | null) => typeof v === 'string' && v.trim().length > 0;
+  const tagged =
+    hasText(clip.move_name) ||
+    hasText(clip.style) ||
+    hasText(clip.energy) ||
+    hasText(clip.difficulty) ||
+    clip.bpm != null ||
+    hasText(clip.notes);
+  const untagged = !tagged;
 
   return (
     <TouchableOpacity

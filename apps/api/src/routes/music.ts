@@ -49,7 +49,27 @@ app.post('/:id/music', async (c) => {
 
   const contentType = c.req.header('Content-Type') ?? '';
 
+  const getExistingTrack = async () => {
+    const { data: existing } = await supabase
+      .from('music_tracks')
+      .select('id, source_type, source_url, storage_path, analysis_status')
+      .eq('session_id', sessionId)
+      .order('created_at', { ascending: false })
+      .limit(1)
+      .maybeSingle();
+    return existing as
+      | {
+          id: string;
+          source_type: 'upload' | 'youtube';
+          source_url: string | null;
+          storage_path: string | null;
+          analysis_status: 'pending' | 'complete' | string;
+        }
+      | null;
+  };
+
   if (contentType.includes('multipart/form-data')) {
+    const existingTrack = await getExistingTrack();
     const formData = await c.req.formData();
     const file = formData.get('file');
     if (!file || !(file instanceof File)) {
@@ -66,7 +86,8 @@ app.post('/:id/music', async (c) => {
       return c.json({ error: 'File too large. Maximum size is 50 MB.' }, 400);
     }
 
-    const musicTrackId = crypto.randomUUID();
+    const createdNewTrack = !existingTrack;
+    const musicTrackId = existingTrack?.id ?? crypto.randomUUID();
     const ext = MIME_TO_EXT[f.type] ?? 'mp3';
     const storagePath = `${userId}/${sessionId}/${musicTrackId}.${ext}`;
 
@@ -76,14 +97,20 @@ app.post('/:id/music', async (c) => {
       .upload(storagePath, buffer, { contentType: f.type });
     if (uploadError) return c.json({ error: uploadError.message }, 500);
 
-    const { error: insertTrackError } = await supabase.from('music_tracks').insert({
-      id: musicTrackId,
-      session_id: sessionId,
-      source_type: 'upload',
-      storage_path: storagePath,
-      analysis_status: 'pending',
-    });
-    if (insertTrackError) return c.json({ error: insertTrackError.message }, 500);
+    const { error: upsertTrackError } = await supabase
+      .from('music_tracks')
+      .upsert(
+        {
+          id: musicTrackId,
+          session_id: sessionId,
+          source_type: 'upload',
+          source_url: null,
+          storage_path: storagePath,
+          analysis_status: 'pending',
+        },
+        { onConflict: 'session_id' }
+      );
+    if (upsertTrackError) return c.json({ error: upsertTrackError.message }, 500);
 
     const timeoutMs = Math.max(
       3 * 60_000,
@@ -98,8 +125,24 @@ app.post('/:id/music', async (c) => {
       timeout_at: timeoutAt,
     });
     if (jobError) {
-      await supabase.from('music_tracks').delete().eq('id', musicTrackId);
-      await supabase.storage.from('audio').remove([storagePath]);
+      if (createdNewTrack) {
+        await supabase.from('music_tracks').delete().eq('id', musicTrackId);
+        await supabase.storage.from('audio').remove([storagePath]);
+      } else {
+        await supabase
+          .from('music_tracks')
+          .update({
+            source_type: existingTrack!.source_type,
+            source_url: existingTrack!.source_url,
+            storage_path: existingTrack!.storage_path,
+            analysis_status: existingTrack!.analysis_status,
+          })
+          .eq('id', musicTrackId);
+
+        if (existingTrack!.storage_path !== storagePath) {
+          await supabase.storage.from('audio').remove([storagePath]);
+        }
+      }
       return c.json({ error: jobError.message }, 500);
     }
 
@@ -116,15 +159,22 @@ app.post('/:id/music', async (c) => {
     );
   }
 
-  const musicTrackId = crypto.randomUUID();
-  const { error: insertError } = await supabase.from('music_tracks').insert({
-    id: musicTrackId,
-    session_id: sessionId,
-    source_type: 'youtube',
-    source_url: youtube_url,
-    analysis_status: 'complete',
-  });
-  if (insertError) return c.json({ error: insertError.message }, 500);
+    const existingTrack = await getExistingTrack();
+    const musicTrackId = existingTrack?.id ?? crypto.randomUUID();
+    const { error: upsertError } = await supabase
+      .from('music_tracks')
+      .upsert(
+        {
+          id: musicTrackId,
+          session_id: sessionId,
+          source_type: 'youtube',
+          source_url: youtube_url,
+          storage_path: null,
+          analysis_status: 'complete',
+        },
+        { onConflict: 'session_id' }
+      );
+    if (upsertError) return c.json({ error: upsertError.message }, 500);
 
   return c.json({ music_track_id: musicTrackId, analysis_status: 'complete' }, 201);
 });
@@ -147,7 +197,9 @@ app.patch('/:id/music', async (c) => {
       .from('music_tracks')
       .select('*')
       .eq('session_id', sessionId)
-      .single();
+      .order('created_at', { ascending: false })
+      .limit(1)
+      .maybeSingle();
     if (!existing) return c.json({ error: 'Not found' }, 404);
     return c.json(existing as MusicTrack);
   }
@@ -157,12 +209,15 @@ app.patch('/:id/music', async (c) => {
     .update(updates)
     .eq('session_id', sessionId)
     .select('*')
-    .single();
+    .order('created_at', { ascending: false })
+    .limit(1)
+    .maybeSingle();
 
   if (error) {
     if (error.code === 'PGRST116') return c.json({ error: 'Not found' }, 404);
     return c.json({ error: error.message }, 500);
   }
+  if (!data) return c.json({ error: 'Not found' }, 404);
   return c.json(data as MusicTrack);
 });
 

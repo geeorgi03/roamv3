@@ -12,6 +12,8 @@ export function useMusicTrackStatus(sessionId: string | null) {
       .from('music_tracks')
       .select('*')
       .eq('session_id', sessionId)
+      .order('created_at', { ascending: false })
+      .limit(1)
       .maybeSingle();
     setMusicTrack((data as MusicTrack | null) ?? null);
   };
@@ -31,6 +33,8 @@ export function useMusicTrackStatus(sessionId: string | null) {
         .from('music_tracks')
         .select('*')
         .eq('session_id', sessionId)
+        .order('created_at', { ascending: false })
+        .limit(1)
         .maybeSingle();
       if (mounted) setMusicTrack((data as MusicTrack | null) ?? null);
     })();

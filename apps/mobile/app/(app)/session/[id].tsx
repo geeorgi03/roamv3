@@ -31,7 +31,7 @@ export default function SessionWorkspaceScreen() {
   const router = useRouter();
   const navigation = useNavigation();
   const { session } = useSession();
-  const { musicTrack } = useMusicTrackStatus(id ?? null);
+  const { musicTrack, isAnalysing } = useMusicTrackStatus(id ?? null);
   const shareSheetRef = useRef<BottomSheet | null>(null);
   const captureSheetRef = useRef<BottomSheet | null>(null);
   const tagSheetRef = useRef<BottomSheet | null>(null);
@@ -44,11 +44,11 @@ export default function SessionWorkspaceScreen() {
   const [selectedClip, setSelectedClip] = useState<ClipRow | null>(null);
   const [commentCounts, setCommentCounts] = useState<Record<string, number>>({});
   const [activeTab, setActiveTab] = useState<'clips' | 'beatGrid' | 'assembly'>('clips');
-  const hasSections = (musicTrack?.sections?.length ?? 0) > 0;
+  const hasMusicTrack = !!musicTrack;
 
   useEffect(() => {
-    if (!hasSections && activeTab === 'assembly') setActiveTab('clips');
-  }, [hasSections, activeTab]);
+    if (!hasMusicTrack && activeTab === 'assembly') setActiveTab('clips');
+  }, [hasMusicTrack, activeTab]);
 
   useFocusEffect(
     useCallback(() => {
@@ -120,7 +120,7 @@ export default function SessionWorkspaceScreen() {
           params: { sessionId: id, musicTrackJson: JSON.stringify(musicTrack) },
         });
       } else {
-        router.push({ pathname: './music-setup', params: { id } });
+        setActiveTab('beatGrid');
       }
     }
   };
@@ -128,7 +128,10 @@ export default function SessionWorkspaceScreen() {
   const openPlayer = (index: number) => {
     router.push({
       pathname: './clip-player',
-      params: { sessionId: id, clipIndex: String(index) },
+      params: {
+        sessionId: id,
+        clipIndex: String(index),
+      },
     });
   };
 
@@ -163,7 +166,18 @@ export default function SessionWorkspaceScreen() {
     refresh();
   };
 
-  const untaggedClipCount = clips.filter((c) => !c.move_name && !c.style).length;
+  const isTagged = (c: ClipRow) => {
+    const hasText = (v: string | null) => typeof v === 'string' && v.trim().length > 0;
+    return (
+      hasText(c.move_name) ||
+      hasText(c.style) ||
+      hasText(c.energy) ||
+      hasText(c.difficulty) ||
+      c.bpm != null ||
+      hasText(c.notes)
+    );
+  };
+  const untaggedClipCount = clips.filter((c) => !isTagged(c)).length;
   const canOpenBeatGrid =
     !!musicTrack &&
     musicTrack.source_type === 'upload' &&
@@ -222,7 +236,7 @@ export default function SessionWorkspaceScreen() {
             Beat Grid
           </Text>
         </TouchableOpacity>
-        {hasSections && (
+        {hasMusicTrack && (
           <TouchableOpacity
             style={[styles.tab, activeTab === 'assembly' && styles.tabActive]}
             onPress={() => setActiveTab('assembly')}
@@ -243,16 +257,25 @@ export default function SessionWorkspaceScreen() {
             {canOpenBeatGrid
               ? 'Open the alignment editor for this session’s music.'
               : musicTrack
-                ? 'Finish music alignment to unlock Beat Grid.'
+                ? isAnalysing
+                  ? 'Analysing track… You can keep capturing clips while we process it.'
+                  : 'Finish music alignment to unlock Beat Grid.'
                 : 'Set up music to unlock Beat Grid.'}
           </Text>
           <TouchableOpacity
             style={styles.beatGridBtn}
             onPress={handleMusicPress}
+            disabled={!!musicTrack && isAnalysing && !canOpenBeatGrid}
             activeOpacity={0.85}
           >
             <Text style={styles.beatGridBtnText}>
-              {canOpenBeatGrid ? 'Open Beat Grid' : musicTrack ? 'Edit alignment' : 'Set up music'}
+              {canOpenBeatGrid
+                ? 'Open Beat Grid'
+                : musicTrack
+                  ? isAnalysing
+                    ? 'Analysing track…'
+                    : 'Edit alignment'
+                  : 'Set up music'}
             </Text>
           </TouchableOpacity>
         </View>
@@ -285,7 +308,11 @@ export default function SessionWorkspaceScreen() {
             activeOpacity={0.8}
           >
             <Text style={styles.musicEntryText}>
-              {musicTrack ? 'Edit alignment' : 'Set up music'}
+              {musicTrack
+                ? musicTrack.source_type === 'upload' && isAnalysing
+                  ? 'Analysing track…'
+                  : 'Edit alignment'
+                : 'Set up music'}
             </Text>
           </TouchableOpacity>
           <TouchableOpacity

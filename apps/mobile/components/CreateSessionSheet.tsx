@@ -6,6 +6,7 @@ import {
   TouchableOpacity,
   TextInput,
   ActivityIndicator,
+  Alert,
 } from 'react-native';
 import BottomSheet from '@gorhom/bottom-sheet';
 import { theme } from '../lib/theme';
@@ -35,33 +36,66 @@ export function CreateSessionSheet({
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
+  const parseJsonSafe = async (res: Response): Promise<{ parsed: unknown; raw: string }> => {
+    const raw = await res.text();
+    if (!raw) return { parsed: null, raw: '' };
+    try {
+      return { parsed: JSON.parse(raw), raw };
+    } catch {
+      return { parsed: null, raw };
+    }
+  };
+
+  const postCreateSession = async (path: string) => {
+    return fetch(`${API_BASE}${path}`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${session!.access_token}`,
+      },
+      body: JSON.stringify({ name: name.trim() || defaultName() }),
+    });
+  };
+
   const handleCreate = async () => {
-    if (!session?.access_token) return;
+    if (!session?.access_token) {
+      const msg =
+        'Not signed in. Close this sheet, open Profile, sign in again, then try Create again.';
+      setError(msg);
+      Alert.alert('Can’t create session', msg);
+      return;
+    }
     setError(null);
     setLoading(true);
     try {
-      const res = await fetch(`${API_BASE}/sessions`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          Authorization: `Bearer ${session.access_token}`,
-        },
-        body: JSON.stringify({ name: name.trim() || defaultName() }),
-      });
-      const data = await res.json();
-      if (res.status === 403 && (data as { error?: string }).error === 'plan_limit_reached') {
+      // Try with trailing slash first (some proxies require it), then without.
+      let res = await postCreateSession('/sessions/');
+      if (res.status === 404) {
+        res = await postCreateSession('/sessions');
+      }
+      const { parsed: data, raw } = await parseJsonSafe(res);
+
+      if (res.status === 403 && (data as { error?: string })?.error === 'plan_limit_reached') {
         bottomSheetRef.current?.close();
         onPaywallRequired?.();
         return;
       }
       if (!res.ok) {
-        throw new Error((data as { error?: string }).error ?? res.statusText);
+        const msg =
+          (data as { error?: string })?.error ??
+          (raw ? `HTTP ${res.status}: ${raw.slice(0, 200)}` : `HTTP ${res.status} ${res.statusText}`);
+        throw new Error(msg || 'Request failed');
       }
-      const newSession = data as { id: string; name: string; created_at: string; user_id: string };
-      onCreated(newSession);
+      const newSession = data as { id?: string; name?: string; created_at?: string; user_id?: string };
+      if (!newSession?.id) {
+        throw new Error('Server returned no session id');
+      }
+      onCreated(newSession as { id: string; name: string; created_at: string; user_id: string });
       bottomSheetRef.current?.close();
     } catch (e) {
-      setError(e instanceof Error ? e.message : 'Failed to create session');
+      const message = e instanceof Error ? e.message : 'Failed to create session';
+      setError(message);
+      Alert.alert('Create session failed', message);
     } finally {
       setLoading(false);
     }

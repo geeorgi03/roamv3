@@ -4,7 +4,6 @@ import {
   StyleSheet,
   TouchableOpacity,
   TextInput,
-  ActivityIndicator,
 } from 'react-native';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import * as DocumentPicker from 'expo-document-picker';
@@ -13,8 +12,7 @@ import { theme } from '../../../lib/theme';
 import { useSession } from '../../../lib/hooks/useSession';
 import { useMusicTrackStatus } from '../../../lib/hooks/useMusicTrackStatus';
 import { PaywallSheet } from '../../../components/PaywallSheet';
-import { useState, useEffect, useRef } from 'react';
-import type { MusicTrack } from '@roam/types';
+import { useState, useRef } from 'react';
 import { API_BASE } from '../../../lib/api';
 
 const YOUTUBE_URL_REGEX = /^(https?:\/\/)?(www\.)?(youtube\.com\/watch\?v=|youtu\.be\/)[\w-]+/;
@@ -23,38 +21,11 @@ export default function MusicSetupScreen() {
   const { id: sessionId } = useLocalSearchParams<{ id: string }>();
   const router = useRouter();
   const { session } = useSession();
-  const { musicTrack, isAnalysing, refetch } = useMusicTrackStatus(sessionId ?? null);
+  const { refetch } = useMusicTrackStatus(sessionId ?? null);
   const [youtubeUrl, setYoutubeUrl] = useState('');
   const [uploading, setUploading] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [localAnalysing, setLocalAnalysing] = useState(false);
-  const hasNavigatedToBeatGrid = useRef(false);
   const paywallSheetRef = useRef<BottomSheet | null>(null);
-
-  // Clear local analysing when real status is known
-  useEffect(() => {
-    if (musicTrack?.analysis_status === 'complete' || musicTrack?.analysis_status === 'failed') {
-      setLocalAnalysing(false);
-    }
-  }, [musicTrack?.analysis_status]);
-
-  // When upload analysis completes, go to beat-grid (once)
-  useEffect(() => {
-    if (
-      hasNavigatedToBeatGrid.current ||
-      !sessionId ||
-      isAnalysing ||
-      musicTrack?.analysis_status !== 'complete' ||
-      musicTrack?.source_type !== 'upload' ||
-      !musicTrack?.storage_path
-    )
-      return;
-    hasNavigatedToBeatGrid.current = true;
-    router.replace({
-      pathname: './beat-grid',
-      params: { sessionId, musicTrackJson: JSON.stringify(musicTrack) },
-    });
-  }, [sessionId, isAnalysing, musicTrack, router]);
 
   const handleUpload = async () => {
     if (!sessionId || !session?.access_token) return;
@@ -85,9 +56,9 @@ export default function MusicSetupScreen() {
         }
         throw new Error((data as { error?: string }).error ?? res.statusText);
       }
-      setLocalAnalysing(true);
-      await refetch();
-      // useMusicTrackStatus will update; show analysing banner until complete
+      // Return immediately to the session workspace; analysis status renders there.
+      router.replace({ pathname: './[id]', params: { id: sessionId } });
+      void refetch();
     } catch (e) {
       setError(e instanceof Error ? e.message : 'Upload failed');
     } finally {
@@ -177,13 +148,6 @@ export default function MusicSetupScreen() {
 
       {error ? <Text style={styles.error}>{error}</Text> : null}
 
-      {isAnalysing || localAnalysing ? (
-        <View style={styles.analysingOverlay}>
-          <ActivityIndicator size="large" color={theme.textPrimary} />
-          <Text style={styles.analysingText}>Analysing track…</Text>
-        </View>
-      ) : null}
-
       <PaywallSheet bottomSheetRef={paywallSheetRef} />
     </View>
   );
@@ -266,20 +230,5 @@ const styles = StyleSheet.create({
     color: '#e74c3c',
     fontSize: 14,
     marginBottom: 8,
-  },
-  analysingOverlay: {
-    position: 'absolute',
-    left: 0,
-    right: 0,
-    top: 0,
-    bottom: 0,
-    backgroundColor: theme.background,
-    justifyContent: 'center',
-    alignItems: 'center',
-  },
-  analysingText: {
-    marginTop: 12,
-    fontSize: 16,
-    color: theme.textPrimary,
   },
 });

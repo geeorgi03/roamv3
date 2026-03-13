@@ -149,10 +149,22 @@ export default function LibraryScreen() {
     const move_name = (clip as unknown as { move_name?: string | null }).move_name ?? '';
     const style = (clip as unknown as { style?: string | null }).style ?? '';
     const energy = (clip as unknown as { energy?: string | null }).energy ?? '';
+    const difficulty = (clip as unknown as { difficulty?: string | null }).difficulty ?? '';
+    const bpm = (clip as unknown as { bpm?: number | null }).bpm;
+    const notes = (clip as unknown as { notes?: string | null }).notes ?? '';
 
     router.push({
       pathname: '/(app)/session/clip-player',
-      params: { clipId: id, mux_playback_id, move_name, style, energy },
+      params: {
+        clipId: id,
+        mux_playback_id,
+        move_name,
+        style,
+        energy,
+        difficulty,
+        bpm: bpm != null ? String(bpm) : '',
+        notes,
+      },
     });
   };
 

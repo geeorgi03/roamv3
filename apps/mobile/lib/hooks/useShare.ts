@@ -42,9 +42,9 @@ export function useShare(sessionId: string) {
     }
   }, [sessionId]);
 
-  const revoke = useCallback(async () => {
-    if (!sessionId) return;
-    if (!supabase) return;
+  const revoke = useCallback(async (): Promise<boolean> => {
+    if (!sessionId) return false;
+    if (!supabase) return false;
     setLoading(true);
     setError(null);
     try {
@@ -52,7 +52,7 @@ export function useShare(sessionId: string) {
       const token = session?.access_token;
       if (!token) {
         setError('Not signed in');
-        return;
+        return false;
       }
       const res = await fetch(`${API_BASE}/sessions/${sessionId}/share`, {
         method: 'DELETE',
@@ -61,11 +61,13 @@ export function useShare(sessionId: string) {
       if (!res.ok) {
         const body = await res.json().catch(() => ({}));
         setError((body as { error?: string }).error ?? 'Failed to revoke');
-        return;
+        return false;
       }
       setShareUrl(null);
+      return true;
     } catch (e) {
       setError(e instanceof Error ? e.message : 'Network error');
+      return false;
     } finally {
       setLoading(false);
     }

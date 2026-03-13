@@ -29,18 +29,29 @@ export function ShareSheet({
   bottomSheetRef,
 }: ShareSheetProps) {
   const { shareUrl, share, revoke, isShared, loading, error } = useShare(sessionId);
+  const [revoked, setRevoked] = React.useState(false);
 
-  const handleCopyLink = async () => {
+  const handleGenerate = async () => {
     const url = await share();
     if (url) {
+      setRevoked(false);
+      Toast.show({ type: 'success', text1: 'Link created' });
+    }
+  };
+
+  const handleCopyLink = async () => {
+    const url = shareUrl ?? (await share());
+    if (url) {
+      setRevoked(false);
       await Clipboard.setStringAsync(url);
       Toast.show({ type: 'success', text1: 'Copied!' });
     }
   };
 
   const handleShareVia = async () => {
-    const url = await share();
+    const url = shareUrl ?? (await share());
     if (!url) return;
+    setRevoked(false);
     try {
       await Share.share({
         message: url,
@@ -50,6 +61,17 @@ export function ShareSheet({
     } catch {
       // User cancelled or share not available
     }
+  };
+
+  const handleRevoke = async () => {
+    const ok = await revoke();
+    if (ok) {
+      setRevoked(true);
+      Toast.show({ type: 'success', text1: 'Link revoked' });
+      return;
+    }
+    setRevoked(false);
+    Toast.show({ type: 'error', text1: 'Failed to revoke link' });
   };
 
   return (
@@ -79,29 +101,49 @@ export function ShareSheet({
 
         {error ? <Text style={styles.errorText}>{error}</Text> : null}
 
-        <TouchableOpacity
-          style={[styles.button, isShared && styles.buttonShared]}
-          onPress={handleCopyLink}
-          disabled={loading}
-        >
-          {loading ? (
-            <ActivityIndicator color={theme.textPrimary} size="small" />
-          ) : (
-            <Text style={styles.buttonText}>🔗 Copy link</Text>
-          )}
-        </TouchableOpacity>
+        {!isShared ? (
+          <TouchableOpacity style={styles.button} onPress={handleGenerate} disabled={loading}>
+            {loading ? (
+              <ActivityIndicator color={theme.textPrimary} size="small" />
+            ) : (
+              <Text style={styles.buttonText}>Generate link</Text>
+            )}
+          </TouchableOpacity>
+        ) : (
+          <>
+            <TouchableOpacity
+              style={[styles.button, styles.buttonShared]}
+              onPress={handleCopyLink}
+              disabled={loading}
+            >
+              {loading ? (
+                <ActivityIndicator color={theme.textPrimary} size="small" />
+              ) : (
+                <Text style={styles.buttonText}>🔗 Copy link</Text>
+              )}
+            </TouchableOpacity>
 
-        <TouchableOpacity
-          style={[styles.button, isShared && styles.buttonShared]}
-          onPress={handleShareVia}
-          disabled={loading}
-        >
-          <Text style={styles.buttonText}>Share via…</Text>
-        </TouchableOpacity>
+            <TouchableOpacity
+              style={[styles.button, styles.buttonShared]}
+              onPress={handleShareVia}
+              disabled={loading}
+            >
+              <Text style={styles.buttonText}>Share via…</Text>
+            </TouchableOpacity>
 
-        {isShared && (
-          <Text style={styles.sharedHint}>🔗 Link active</Text>
+            <TouchableOpacity
+              style={[styles.button, styles.revokeButton]}
+              onPress={handleRevoke}
+              disabled={loading}
+            >
+              <Text style={styles.revokeButtonText}>Revoke link</Text>
+            </TouchableOpacity>
+
+            <Text style={styles.sharedHint}>🔗 Link active</Text>
+          </>
         )}
+
+        {revoked && !isShared ? <Text style={styles.revokedHint}>Link revoked</Text> : null}
       </View>
     </BottomSheet>
   );
@@ -163,5 +205,19 @@ const styles = StyleSheet.create({
     marginTop: 8,
     color: theme.untaggedText,
     fontSize: 12,
+  },
+  revokedHint: {
+    marginTop: 8,
+    color: theme.textSecondary,
+    fontSize: 12,
+  },
+  revokeButton: {
+    backgroundColor: 'transparent',
+    borderColor: '#e57373',
+  },
+  revokeButtonText: {
+    color: '#e57373',
+    fontSize: 16,
+    fontWeight: '600',
   },
 });

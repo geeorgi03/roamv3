@@ -41,13 +41,27 @@ export default function HomeScreen() {
     const controller = new AbortController();
     const timeoutId = setTimeout(() => controller.abort(), 10_000);
     try {
-      const res = await fetch(`${API_BASE}/sessions`, {
+      let res = await fetch(`${API_BASE}/sessions/`, {
         headers: { Authorization: `Bearer ${session.access_token}` },
         signal: controller.signal,
       });
+      if (res.status === 404) {
+        res = await fetch(`${API_BASE}/sessions`, {
+          headers: { Authorization: `Bearer ${session.access_token}` },
+          signal: controller.signal,
+        });
+      }
       clearTimeout(timeoutId);
-      const data = await res.json();
-      if (res.ok) setSessions((data as { sessions: Session[] }).sessions ?? []);
+      const text = await res.text();
+      let data: unknown = null;
+      try {
+        data = text ? JSON.parse(text) : null;
+      } catch {
+        data = null;
+      }
+      if (res.ok && data && typeof data === 'object' && 'sessions' in data) {
+        setSessions((data as { sessions: Session[] }).sessions ?? []);
+      }
     } catch {
       // API unreachable, timeout, or network error
       setSessions([]);

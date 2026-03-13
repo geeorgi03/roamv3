@@ -48,12 +48,27 @@ type LibraryParams = {
   move_name?: string;
   style?: string;
   energy?: string;
+  difficulty?: string;
+  bpm?: string;
+  notes?: string;
+  section_label?: string;
 };
 
 type PlayerParams = SessionParams & LibraryParams;
 
 export default function ClipPlayerScreen() {
-  const { sessionId, clipIndex, mux_playback_id, move_name, style, energy } =
+  const {
+    sessionId,
+    clipIndex,
+    mux_playback_id,
+    move_name,
+    style,
+    energy,
+    difficulty,
+    bpm,
+    notes,
+    section_label,
+  } =
     useLocalSearchParams<PlayerParams>();
   const router = useRouter();
 
@@ -464,8 +479,17 @@ export default function ClipPlayerScreen() {
     const libraryMoveName = move_name ?? null;
     const libraryStyle = style ?? null;
     const libraryEnergy = energy ?? null;
+    const libraryDifficulty = difficulty ?? null;
+    const libraryBpm = bpm && String(bpm).trim() ? String(bpm).trim() : null;
+    const libraryNotes = notes ?? null;
+    const librarySection = section_label ?? null;
     const showLibraryTags =
-      !!libraryMoveName || !!libraryStyle || !!libraryEnergy;
+      !!libraryMoveName ||
+      !!libraryStyle ||
+      !!libraryEnergy ||
+      !!libraryDifficulty ||
+      !!libraryBpm ||
+      !!libraryNotes;
 
     return (
       <GestureDetector gesture={panGesture}>
@@ -518,6 +542,11 @@ export default function ClipPlayerScreen() {
           </View>
 
           <View style={styles.tagsRow}>
+            {librarySection ? (
+              <View style={styles.contextPill}>
+                <Text style={styles.contextPillText}>{librarySection}</Text>
+              </View>
+            ) : null}
             {showLibraryTags ? (
               <>
                 {libraryMoveName ? (
@@ -535,6 +564,23 @@ export default function ClipPlayerScreen() {
                     <Text style={styles.tagPillText}>{libraryEnergy}</Text>
                   </View>
                 ) : null}
+                {libraryDifficulty ? (
+                  <View style={styles.tagPill}>
+                    <Text style={styles.tagPillText}>{libraryDifficulty}</Text>
+                  </View>
+                ) : null}
+                {libraryBpm ? (
+                  <View style={styles.tagPill}>
+                    <Text style={styles.tagPillText}>{libraryBpm} BPM</Text>
+                  </View>
+                ) : null}
+                {libraryNotes ? (
+                  <View style={styles.tagPill}>
+                    <Text style={styles.tagPillText} numberOfLines={2}>
+                      {libraryNotes}
+                    </Text>
+                  </View>
+                ) : null}
               </>
             ) : null}
           </View>
@@ -545,7 +591,13 @@ export default function ClipPlayerScreen() {
 
   const showTags =
     !!displayClip &&
-    (displayClip.move_name || displayClip.style || displayClip.energy);
+    (displayClip.move_name ||
+      displayClip.style ||
+      displayClip.energy ||
+      displayClip.difficulty ||
+      displayClip.bpm != null ||
+      displayClip.notes);
+  const sectionLabel = section_label ?? null;
 
   return (
     <GestureDetector gesture={panGesture}>
@@ -734,6 +786,11 @@ export default function ClipPlayerScreen() {
         </View>
 
         <View style={styles.tagsRow}>
+          {sectionLabel ? (
+            <View style={styles.contextPill}>
+              <Text style={styles.contextPillText}>{sectionLabel}</Text>
+            </View>
+          ) : null}
           {showTags ? (
             <>
               {displayClip!.move_name ? (
@@ -749,6 +806,23 @@ export default function ClipPlayerScreen() {
               {displayClip!.energy ? (
                 <View style={styles.tagPill}>
                   <Text style={styles.tagPillText}>{displayClip!.energy}</Text>
+                </View>
+              ) : null}
+              {displayClip!.difficulty ? (
+                <View style={styles.tagPill}>
+                  <Text style={styles.tagPillText}>{displayClip!.difficulty}</Text>
+                </View>
+              ) : null}
+              {displayClip!.bpm != null ? (
+                <View style={styles.tagPill}>
+                  <Text style={styles.tagPillText}>{displayClip!.bpm} BPM</Text>
+                </View>
+              ) : null}
+              {displayClip!.notes ? (
+                <View style={styles.tagPill}>
+                  <Text style={styles.tagPillText} numberOfLines={2}>
+                    {displayClip!.notes}
+                  </Text>
                 </View>
               ) : null}
             </>
@@ -870,6 +944,19 @@ const styles = StyleSheet.create({
   tagPillText: {
     color: theme.textPrimary,
     fontSize: 14,
+  },
+  contextPill: {
+    paddingVertical: 6,
+    paddingHorizontal: 12,
+    borderRadius: theme.borderRadius,
+    backgroundColor: 'rgba(184, 134, 11, 0.25)',
+    borderWidth: 1,
+    borderColor: 'rgba(184, 134, 11, 0.6)',
+  },
+  contextPillText: {
+    color: theme.textPrimary,
+    fontSize: 13,
+    fontWeight: '600',
   },
   addTagsText: {
     color: theme.untaggedText,
