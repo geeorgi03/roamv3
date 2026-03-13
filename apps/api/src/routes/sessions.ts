@@ -4,7 +4,7 @@ import { supabase } from '../lib/supabase.js';
 import { checkSessionLimit } from '../lib/planGate.js';
 import type { Session, MusicTrack, Clip } from '@roam/types';
 
-const app = new Hono<{ Variables: { userId: string } }>()
+const app = new Hono<{ Variables: { userId: string; userEmail: string | null } }>()
   .use('*', requireAuth);
 
 /** GET /sessions — list sessions for the authenticated user */
@@ -25,8 +25,21 @@ app.get('/', async (c) => {
 /** POST /sessions — create a session */
 app.post('/', checkSessionLimit, async (c) => {
   const userId = c.get('userId');
+  const userEmail = c.get('userEmail');
   const body = await c.req.json<{ name?: string }>();
   const name = typeof body?.name === 'string' ? body.name.trim() || 'Untitled Session' : 'Untitled Session';
+
+  // Ensure public.users exists for this auth user (prevents FK failures when migrations/triggers weren't applied).
+  // users.email is NOT NULL, so if we don't have it, fail loudly instead of inserting an invalid row.
+  if (!userEmail) {
+    return c.json({ error: 'User email missing; cannot create profile row' }, 500);
+  }
+  const { error: userUpsertError } = await supabase
+    .from('users')
+    .upsert({ id: userId, email: userEmail, plan: 'free' }, { onConflict: 'id' });
+  if (userUpsertError) {
+    return c.json({ error: userUpsertError.message }, 500);
+  }
 
   const { data, error } = await supabase
     .from('sessions')

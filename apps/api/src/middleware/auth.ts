@@ -12,5 +12,6 @@ export async function requireAuth(c: Context, next: Next) {
     return c.json({ error: 'Invalid or expired token' }, 401);
   }
   c.set('userId', user.id);
+  c.set('userEmail', user.email ?? null);
   return next();
 }
