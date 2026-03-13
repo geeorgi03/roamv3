@@ -67,9 +67,7 @@ app.get('/:id', async (c) => {
   const session = sessionFields as Session;
   const music_track: MusicTrack | null =
     (Array.isArray(music_tracks) && music_tracks.length > 0
-      ? (music_tracks as MusicTrack[]).sort(
-          (a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime()
-        )[0]
+      ? (music_tracks as MusicTrack[])[0]
       : null) ?? null;
 
   return c.json({ session, music_track, clips: clips as Clip[] });
