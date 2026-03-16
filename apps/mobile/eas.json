@@ -16,7 +16,7 @@
       "env": {
         "EXPO_PUBLIC_SUPABASE_URL": "https://onlmbynqfdqqzeqzzzpq.supabase.co",
         "EXPO_PUBLIC_SUPABASE_ANON_KEY": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Im9ubG1ieW5xZmRxcXplcXp6enBxIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzMwMzY3NDYsImV4cCI6MjA4ODYxMjc0Nn0.x8Q8VA2jB5Q88AqfrFBwB24DY3bfyiGeLU8iu_vKjyc",
-        "EXPO_PUBLIC_API_URL": "https://roam-api.onrender.com",
+        "EXPO_PUBLIC_API_URL": "https://roam-choreography.onrender.com",
         "EXPO_USE_METRO_WORKSPACE_ROOT": "0"
       },
       "ios": {},
