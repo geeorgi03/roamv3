@@ -1,0 +1,36 @@
+@import './fonts.css';
+@import './tailwind.css';
+@import './theme.css';
+
+/* Mobile viewport optimization for Roam app */
+body {
+  margin: 0;
+  padding: 0;
+  overflow-x: hidden;
+}
+
+/* Mobile container - simulates iPhone 14 frame */
+@media (min-width: 768px) {
+  body {
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    min-height: 100vh;
+    background: #000;
+  }
+  
+  #root {
+    max-width: 375px;
+    width: 375px;
+    height: 812px;
+    overflow: hidden;
+    box-shadow: 0 0 0 8px #1a1a1a, 0 0 40px rgba(0, 0, 0, 0.5);
+    border-radius: 40px;
+  }
+}
+
+@media (max-width: 767px) {
+  #root {
+    min-height: 100vh;
+  }
+}
