@@ -1,4 +1,4 @@
-import { Circle, Music, ChevronRight, Inbox } from "lucide-react";
+import { Circle, Music, ChevronRight } from "lucide-react";
 import { useNavigate } from "react-router";
 import { useState } from "react";
 import { useAuth } from "../contexts/AuthContext";
@@ -63,6 +63,31 @@ export default function Home() {
           roam
         </h1>
       </div>
+
+      {/* Inbox Banner — below header, full-width when sessions exist */}
+      {inboxCount > 0 && (
+        <button
+          onClick={() => navigate("/inbox")}
+          className="w-full flex items-center gap-3 px-5 py-3 transition-opacity hover:opacity-80"
+          style={{
+            backgroundColor: "var(--surface-raised)",
+            borderBottom: "0.5px solid var(--border-subtle)",
+          }}
+        >
+          <span className="w-2 h-2 rounded-full flex-shrink-0" style={{ backgroundColor: "var(--accent-cool)" }} />
+          <span
+            className="flex-1 text-left"
+            style={{
+              fontFamily: "var(--font-body)",
+              fontSize: "13px",
+              color: "var(--text-secondary)",
+            }}
+          >
+            {inboxCount} unorganised clip{inboxCount !== 1 ? "s" : ""} →
+          </span>
+          <ChevronRight className="w-4 h-4 flex-shrink-0" style={{ color: "var(--text-disabled)" }} />
+        </button>
+      )}
 
       {/* Main Content */}
       <div className="flex-1 flex flex-col items-center justify-center px-8 pb-32">
@@ -245,31 +270,6 @@ export default function Home() {
           </div>
         )}
 
-        {/* Inbox Indicator */}
-        {inboxCount > 0 && (
-          <button 
-            onClick={() => navigate("/inbox")}
-            className="mt-6 flex items-center gap-2 px-3 py-1.5 rounded-full"
-            style={{
-              backgroundColor: 'var(--surface-overlay)',
-              border: '0.5px solid var(--border-subtle)',
-            }}
-          >
-            <Inbox 
-              className="w-3.5 h-3.5" 
-              style={{ color: 'var(--accent-cool)' }}
-            />
-            <span 
-              style={{ 
-                fontSize: '12px',
-                color: 'var(--text-secondary)',
-                fontFamily: 'var(--font-body)'
-              }}
-            >
-              {inboxCount} ideas waiting
-            </span>
-          </button>
-        )}
       </div>
 
       {/* Bottom Area */}

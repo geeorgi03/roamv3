@@ -7,6 +7,7 @@ import WaveformLoadingTrack from "../components/WaveformLoadingTrack";
 import { useSessionData } from "../hooks/useSessionData";
 import NotePinSheet from "../components/NotePinSheet";
 import ShareSheet from "../components/ShareSheet";
+import AddClipActionSheet from "../components/AddClipActionSheet";
 import { apiRequest, uploadFile } from "../../utils/supabase";
 
 export default function SessionWorkbench() {
@@ -22,6 +23,7 @@ export default function SessionWorkbench() {
     addClip, 
     addNote,
     addLoop,
+    updateLoop,
     deleteClip,
     updateSession,
   } = useSessionData(sessionId || null);
@@ -39,8 +41,26 @@ export default function SessionWorkbench() {
   const [noteSheetOpen, setNoteSheetOpen] = useState(false);
   const [noteSheetTimecode, setNoteSheetTimecode] = useState(0);
   const [noteSheetSection, setNoteSheetSection] = useState<string>("—");
+  const [noteSaveError, setNoteSaveError] = useState<string | null>(null);
 
   const [shareOpen, setShareOpen] = useState(false);
+  const [shareClipId, setShareClipId] = useState<string | null>(null);
+
+  const [showAddClipSheet, setShowAddClipSheet] = useState(false);
+
+  // Voice note inline playback
+  const [playingNoteId, setPlayingNoteId] = useState<string | null>(null);
+  const voiceMemoRef = useRef<HTMLAudioElement | null>(null);
+  const musicWasPlayingBeforeMemo = useRef<boolean>(false);
+
+  // Loop inline popover
+  const [loopPopover, setLoopPopover] = useState<{
+    loopId: string;
+    name: string;
+    color: string;
+    repeatCount: string;
+    leftPct: number;
+  } | null>(null);
 
   useEffect(() => {
     const next = session?.sections?.[0]?.name ?? null;
@@ -136,6 +156,56 @@ export default function SessionWorkbench() {
     } finally {
       setMusicImporting(false);
     }
+  };
+
+  const handleNoteSave = async (data: { text?: string; audioBlob?: Blob }) => {
+    setNoteSaveError(null);
+    try {
+      let audioStoragePath: string | undefined;
+      if (data.audioBlob && data.audioBlob.size > 0) {
+        const uploaded = await uploadFile(data.audioBlob, "audio");
+        audioStoragePath = uploaded.url;
+      }
+      await addNote({
+        timecode: noteSheetTimecode,
+        text: data.text,
+        audioUrl: audioStoragePath,
+      });
+      setNoteSheetOpen(false);
+    } catch (err) {
+      setNoteSaveError(err instanceof Error ? err.message : "Failed to save note");
+    }
+  };
+
+  const handleVoiceNotePlay = (noteId: string, audioUrl: string) => {
+    if (playingNoteId === noteId) {
+      voiceMemoRef.current?.pause();
+      setPlayingNoteId(null);
+      if (musicWasPlayingBeforeMemo.current) {
+        audioRef.current?.play().catch(() => {});
+      }
+      return;
+    }
+    // Stop any existing voice memo
+    if (voiceMemoRef.current) {
+      voiceMemoRef.current.pause();
+      voiceMemoRef.current.src = "";
+    }
+    // Track whether music was playing before starting memo
+    musicWasPlayingBeforeMemo.current = audioRef.current ? !audioRef.current.paused : false;
+    // Pause music
+    audioRef.current?.pause();
+
+    const audio = new Audio(audioUrl);
+    voiceMemoRef.current = audio;
+    audio.onended = () => {
+      setPlayingNoteId(null);
+      if (musicWasPlayingBeforeMemo.current) {
+        audioRef.current?.play().catch(() => {});
+      }
+    };
+    audio.play().catch(() => {});
+    setPlayingNoteId(noteId);
   };
 
   if (loading) {
@@ -515,7 +585,21 @@ export default function SessionWorkbench() {
               const end = Math.max(draft.start, draft.end);
               if (end - start < 0.5) return;
               try {
-                await addLoop({ startTime: start, endTime: end, name: "New" });
+                const loopLabels = ["A", "B", "C", "D", "E", "F"];
+                const autoName = `Loop ${loopLabels[loops.length % loopLabels.length]}`;
+                const defaultColor = "#4ECDC4";
+                const defaultRepeatCount = "4×";
+                const newLoop = await addLoop({ startTime: start, endTime: end, name: autoName, color: defaultColor, repeatCount: defaultRepeatCount });
+                if (newLoop) {
+                  const leftPct = (start / duration) * 100;
+                  setLoopPopover({
+                    loopId: newLoop.id,
+                    name: autoName,
+                    color: defaultColor,
+                    repeatCount: defaultRepeatCount,
+                    leftPct,
+                  });
+                }
               } catch (err) {
                 console.error("Failed to add loop:", err);
               }
@@ -530,34 +614,137 @@ export default function SessionWorkbench() {
             {loops.map((loop) => {
               const left = duration > 0 ? (loop.startTime / duration) * 100 : 0;
               const width = duration > 0 ? ((loop.endTime - loop.startTime) / duration) * 100 : 0;
+              const loopColor = loop.color || "#C8F135";
               return (
                 <button
                   key={loop.id}
-                  onClick={() => navigate(`/session/${sessionId}/repetition/${loop.id}`)}
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    setLoopPopover({
+                      loopId: loop.id,
+                      name: loop.name,
+                      color: loop.color || "#4ECDC4",
+                      repeatCount: loop.repeatCount || "4×",
+                      leftPct: left,
+                    });
+                  }}
                   className="absolute top-1/2 -translate-y-1/2 h-6 rounded transition-opacity hover:opacity-80"
                   style={{
                     left: `${left}%`,
                     width: `${Math.max(1, width)}%`,
-                    backgroundColor: 'rgba(200, 241, 53, 0.15)',
-                    borderTop: '2px solid var(--accent-primary)',
-                    borderBottom: '2px solid var(--accent-primary)',
+                    backgroundColor: `${loopColor}26`,
+                    borderTop: `2px solid ${loopColor}`,
+                    borderBottom: `2px solid ${loopColor}`,
                   }}
                 >
-                  <div className="absolute -left-1 top-1/2 -translate-y-1/2 w-2 h-2 rounded-full" style={{ backgroundColor: 'var(--accent-primary)' }} />
-                  <div className="absolute -right-1 top-1/2 -translate-y-1/2 w-2 h-2 rounded-full" style={{ backgroundColor: 'var(--accent-primary)' }} />
+                  <div className="absolute -left-1 top-1/2 -translate-y-1/2 w-2 h-2 rounded-full" style={{ backgroundColor: loopColor }} />
+                  <div className="absolute -right-1 top-1/2 -translate-y-1/2 w-2 h-2 rounded-full" style={{ backgroundColor: loopColor }} />
                   <div 
                     className="absolute -top-4 left-1/2 -translate-x-1/2 whitespace-nowrap"
                     style={{ 
                       fontSize: '10px',
-                      color: 'var(--accent-primary)',
+                      color: loopColor,
                       fontFamily: 'var(--font-body)'
                     }}
                   >
-                    {loop.name}
+                    {loop.name}{loop.repeatCount ? ` · ${loop.repeatCount}` : ""}
                   </div>
                 </button>
               );
             })}
+
+            {/* Loop popover */}
+            {loopPopover && (
+              <>
+                <div
+                  className="fixed inset-0 z-30"
+                  onPointerDown={() => setLoopPopover(null)}
+                />
+                <div
+                  className="absolute z-40 rounded-xl px-3 py-3"
+                  style={{
+                    bottom: "110%",
+                    left: `${Math.min(loopPopover.leftPct, 60)}%`,
+                    backgroundColor: "var(--surface-raised)",
+                    border: "1px solid var(--border-subtle)",
+                    minWidth: "200px",
+                    boxShadow: "0 4px 20px rgba(0,0,0,0.4)",
+                  }}
+                  onPointerDown={(e) => e.stopPropagation()}
+                >
+                  <input
+                    autoFocus
+                    value={loopPopover.name}
+                    onChange={(e) => setLoopPopover((p) => p ? { ...p, name: e.target.value } : p)}
+                    className="w-full rounded-lg px-2 py-1.5 outline-none mb-2"
+                    style={{
+                      backgroundColor: "var(--surface-overlay)",
+                      border: "1px solid var(--border-subtle)",
+                      fontFamily: "var(--font-body)",
+                      fontSize: "13px",
+                      color: "var(--text-primary)",
+                    }}
+                  />
+                  {/* Color swatches */}
+                  <div className="flex gap-1.5 mb-2">
+                    {["#4ECDC4", "#FF9A3C", "#FF6B6B", "#A78BFA"].map((c) => (
+                      <button
+                        key={c}
+                        onClick={() => setLoopPopover((p) => p ? { ...p, color: c } : p)}
+                        className="w-6 h-6 rounded-full transition-transform hover:scale-110"
+                        style={{
+                          backgroundColor: c,
+                          outline: loopPopover.color === c ? `2px solid white` : "none",
+                          outlineOffset: "1px",
+                        }}
+                      />
+                    ))}
+                  </div>
+                  {/* Repeat count chips */}
+                  <div className="flex gap-1 mb-3">
+                    {["2×", "4×", "8×", "∞"].map((rc) => (
+                      <button
+                        key={rc}
+                        onClick={() => setLoopPopover((p) => p ? { ...p, repeatCount: rc } : p)}
+                        className="px-2 py-0.5 rounded-full"
+                        style={{
+                          backgroundColor: loopPopover.repeatCount === rc ? loopPopover.color : "var(--surface-overlay)",
+                          border: `1px solid ${loopPopover.repeatCount === rc ? loopPopover.color : "var(--border-subtle)"}`,
+                          fontFamily: "var(--font-body)",
+                          fontSize: "11px",
+                          color: loopPopover.repeatCount === rc ? "var(--surface-base)" : "var(--text-secondary)",
+                        }}
+                      >
+                        {rc}
+                      </button>
+                    ))}
+                  </div>
+                  <button
+                    onClick={async () => {
+                      try {
+                        await updateLoop(loopPopover.loopId, {
+                          name: loopPopover.name,
+                          repeatCount: loopPopover.repeatCount,
+                          color: loopPopover.color,
+                        });
+                      } catch (err) {
+                        console.error("Failed to update loop:", err);
+                      }
+                      setLoopPopover(null);
+                    }}
+                    className="w-full h-8 rounded-lg font-semibold"
+                    style={{
+                      backgroundColor: loopPopover.color,
+                      fontFamily: "var(--font-body)",
+                      fontSize: "13px",
+                      color: "var(--surface-base)",
+                    }}
+                  >
+                    Done
+                  </button>
+                </div>
+              </>
+            )}
           </div>
         </div>
       </div>
@@ -638,6 +825,16 @@ export default function SessionWorkbench() {
         </button>
 
         <div className="flex items-center gap-3">
+          {playingNoteId && (
+            <span style={{ fontFamily: "var(--font-body)", fontSize: "11px", color: "var(--accent-cool)" }}>
+              ● memo playing
+            </span>
+          )}
+          {loopPopover && (
+            <span style={{ fontFamily: "var(--font-body)", fontSize: "11px", color: "var(--accent-primary)" }}>
+              ● {loopPopover.name} · {loopPopover.repeatCount}
+            </span>
+          )}
           <button
             onClick={() => updateSession({ mirrorEnabled: !session.mirrorEnabled })}
             style={{ fontSize: '13px', color: 'var(--text-secondary)', fontFamily: 'var(--font-body)' }}
@@ -695,7 +892,7 @@ export default function SessionWorkbench() {
             return (
               <div
                 key={clip.id}
-                className="rounded-lg overflow-hidden"
+                className="rounded-lg overflow-hidden relative"
                 style={{
                   backgroundColor: 'var(--surface-raised)',
                   border: '1px solid var(--border-subtle)',
@@ -703,6 +900,18 @@ export default function SessionWorkbench() {
                 }}
               >
                 <div className="w-full h-16 bg-gray-700" />
+                {/* Share icon */}
+                <button
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    setShareClipId(clip.id);
+                    setShareOpen(true);
+                  }}
+                  className="absolute top-1.5 right-1.5 w-6 h-6 rounded-md flex items-center justify-center"
+                  style={{ backgroundColor: "rgba(0,0,0,0.45)" }}
+                >
+                  <Share2 className="w-3 h-3" style={{ color: "rgba(255,255,255,0.8)" }} />
+                </button>
                 <div className="p-2">
                   <div 
                     style={{ 
@@ -733,7 +942,7 @@ export default function SessionWorkbench() {
           {[1, 2].map((i) => (
             <button
               key={`empty-${i}`}
-              onClick={() => navigate(`/capture?sessionId=${sessionId}&section=${activeSection || ""}`)}
+              onClick={() => setShowAddClipSheet(true)}
               className="rounded-lg flex flex-col items-center justify-center transition-opacity hover:opacity-80"
               style={{
                 backgroundColor: 'var(--surface-raised)',
@@ -797,23 +1006,84 @@ export default function SessionWorkbench() {
                 {sortedNotes.length === 0 ? (
                   <div style={{ fontFamily: "var(--font-body)", fontSize: "12px", color: "var(--text-disabled)" }}>No notes yet</div>
                 ) : (
-                  sortedNotes.map((n) => (
-                    <button
-                      key={n.id}
-                      onClick={() => {
-                        const el = audioRef.current;
-                        if (el) el.currentTime = n.timecode;
-                      }}
-                      className="w-full flex items-center justify-between px-3 py-2 rounded-lg"
-                      style={{ backgroundColor: "var(--surface-raised)", border: "1px solid var(--border-subtle)" }}
-                    >
-                      <div className="text-left">
-                        <div style={{ fontFamily: "var(--font-mono)", fontSize: "11px", color: "var(--text-secondary)" }}>{formatTime(n.timecode)}</div>
-                        <div style={{ fontFamily: "var(--font-body)", fontSize: "13px", color: "var(--text-primary)" }}>{n.text || "Pinned note"}</div>
+                  sortedNotes.map((n) => {
+                    const isVoicePlaying = playingNoteId === n.id;
+                    return (
+                      <div
+                        key={n.id}
+                        className="px-3 py-2 rounded-lg"
+                        style={{ backgroundColor: "var(--surface-raised)", border: "1px solid var(--border-subtle)" }}
+                      >
+                        <div className="flex items-center justify-between">
+                          {/* Timecode chip — seeks music */}
+                          <button
+                            onClick={() => {
+                              const el = audioRef.current;
+                              if (el) el.currentTime = n.timecode;
+                            }}
+                            className="px-1.5 py-0.5 rounded"
+                            style={{ backgroundColor: "var(--surface-overlay)" }}
+                          >
+                            <span style={{ fontFamily: "var(--font-mono)", fontSize: "11px", color: "var(--text-secondary)" }}>
+                              {formatTime(n.timecode)}
+                            </span>
+                          </button>
+
+                          {/* Voice memo toggle */}
+                          {n.audioUrl && (
+                            <button
+                              onClick={() => handleVoiceNotePlay(n.id, n.audioUrl!)}
+                              className="flex items-center gap-1.5 px-2 py-1 rounded-full"
+                              style={{
+                                backgroundColor: isVoicePlaying ? "rgba(10,207,197,0.15)" : "var(--surface-overlay)",
+                                border: `1px solid ${isVoicePlaying ? "var(--accent-cool)" : "var(--border-subtle)"}`,
+                              }}
+                            >
+                              {isVoicePlaying ? (
+                                <Pause className="w-3 h-3" style={{ color: "var(--accent-cool)" }} />
+                              ) : (
+                                <Play className="w-3 h-3" style={{ color: "var(--text-secondary)" }} fill="currentColor" />
+                              )}
+                              <span style={{ fontFamily: "var(--font-body)", fontSize: "11px", color: isVoicePlaying ? "var(--accent-cool)" : "var(--text-secondary)" }}>
+                                {isVoicePlaying ? "playing" : "memo"}
+                              </span>
+                            </button>
+                          )}
+                        </div>
+
+                        {/* Note text */}
+                        {n.text && (
+                          <div className="mt-1" style={{ fontFamily: "var(--font-body)", fontSize: "13px", color: "var(--text-primary)" }}>
+                            {n.text}
+                          </div>
+                        )}
+
+                        {/* Expanded voice player when playing */}
+                        {isVoicePlaying && (
+                          <div className="mt-2 flex items-center gap-2">
+                            <div className="flex items-center gap-0.5 flex-1">
+                              {Array.from({ length: 20 }).map((_, i) => {
+                                const h = 30 + Math.abs(Math.sin(i * 0.5)) * 50;
+                                return (
+                                  <div
+                                    key={i}
+                                    className="flex-1 rounded-sm"
+                                    style={{
+                                      height: `${h}%`,
+                                      maxHeight: "16px",
+                                      backgroundColor: "var(--accent-cool)",
+                                      opacity: 0.7,
+                                      minWidth: "2px",
+                                    }}
+                                  />
+                                );
+                              })}
+                            </div>
+                          </div>
+                        )}
                       </div>
-                      <span style={{ fontFamily: "var(--font-body)", fontSize: "12px", color: "var(--accent-primary)" }}>Play</span>
-                    </button>
-                  ))
+                    );
+                  })
                 )}
               </div>
             </div>
@@ -901,18 +1171,32 @@ export default function SessionWorkbench() {
 
       <NotePinSheet
         isOpen={noteSheetOpen}
-        onClose={() => setNoteSheetOpen(false)}
+        onClose={() => { setNoteSheetOpen(false); setNoteSaveError(null); }}
         timecode={formatTime(noteSheetTimecode)}
         sectionName={noteSheetSection}
-        onSave={() => {
-          setNoteSheetOpen(false);
-        }}
+        onSave={handleNoteSave}
+        error={noteSaveError ?? undefined}
       />
 
       <ShareSheet
         isOpen={shareOpen}
-        onClose={() => setShareOpen(false)}
+        onClose={() => { setShareOpen(false); setShareClipId(null); }}
+        clipId={shareClipId ?? undefined}
         sessionId={sessionId}
+      />
+
+      <AddClipActionSheet
+        isOpen={showAddClipSheet}
+        onClose={() => setShowAddClipSheet(false)}
+        sectionName={activeSectionObj?.name || activeSection || "section"}
+        onRecordNow={() => {
+          setShowAddClipSheet(false);
+          navigate(`/capture?sessionId=${sessionId}&section=${activeSection || ""}`);
+        }}
+        onPickFromInbox={() => {
+          setShowAddClipSheet(false);
+          navigate(`/inbox?sessionId=${sessionId}&section=${activeSection || ""}`);
+        }}
       />
     </div>
   );

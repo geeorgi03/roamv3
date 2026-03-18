@@ -46,6 +46,7 @@ export interface LoopRegion {
   endTime: number;
   name: string;
   repeatCount?: string;
+  color?: string;
   createdAt: string;
 }
 
@@ -196,9 +197,14 @@ export function useSessionData(sessionId: string | null) {
     if (!sessionId) return;
 
     try {
+      const payload = {
+        timecode_ms: Math.round(noteData.timecode * 1000),
+        text: noteData.text,
+        audio_storage_path: noteData.audioUrl,
+      };
       const res = await apiRequest(`/sessions/${sessionId}/notes`, {
         method: 'POST',
-        body: JSON.stringify(noteData),
+        body: JSON.stringify(payload),
       });
 
       if (!res.ok) {
@@ -206,8 +212,14 @@ export function useSessionData(sessionId: string | null) {
       }
 
       const data = await res.json();
-      setNotes(prev => [...prev, data.note]);
-      return data.note;
+      // Normalize API response fields back to front-end shape
+      const note: NotePin = {
+        ...data.note,
+        timecode: data.note.timecode_ms != null ? data.note.timecode_ms / 1000 : data.note.timecode,
+        audioUrl: data.note.audio_storage_path ?? data.note.audioUrl,
+      };
+      setNotes(prev => [...prev, note]);
+      return note;
     } catch (err) {
       console.error('Error adding note:', err);
       throw err;

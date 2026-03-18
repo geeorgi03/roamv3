@@ -7,13 +7,14 @@ interface NotePinSheetProps {
   sectionName: string; // e.g. "Chorus"
   onClose: () => void;
   onSave: (data: { text?: string; audioBlob?: Blob }) => void;
+  error?: string;
 }
 
 type PinMode = "idle" | "recording" | "recorded" | "text";
 
 const LONG_PRESS_MS = 400;
 
-export default function NotePinSheet({ isOpen, timecode, sectionName, onClose, onSave }: NotePinSheetProps) {
+export default function NotePinSheet({ isOpen, timecode, sectionName, onClose, onSave, error }: NotePinSheetProps) {
   const [mode, setMode] = useState<PinMode>("idle");
   const [textNote, setTextNote] = useState("");
   const [recordingTime, setRecordingTime] = useState(0);
@@ -130,7 +131,6 @@ export default function NotePinSheet({ isOpen, timecode, sectionName, onClose, o
       text: textNote.trim() || undefined,
       audioBlob: audioBlobRef.current || undefined,
     });
-    onClose();
   };
 
   const formatTime = (s: number) => `${Math.floor(s / 60)}:${(s % 60).toString().padStart(2, "0")}`;
@@ -310,32 +310,39 @@ export default function NotePinSheet({ isOpen, timecode, sectionName, onClose, o
         </div>
 
         {/* Footer */}
-        <div className="px-5 pb-8 flex gap-3">
-          <button
-            onClick={onClose}
-            className="flex-1 h-12 rounded-xl"
-            style={{
-              border: "1px solid var(--border-subtle)",
-              fontFamily: "var(--font-body)",
-              fontSize: "14px",
-              color: "var(--text-secondary)",
-            }}
-          >
-            Cancel
-          </button>
-          <button
-            onClick={handleSave}
-            disabled={mode === "recording" || (mode === "idle" && !textNote.trim())}
-            className="flex-1 h-12 rounded-xl font-semibold"
-            style={{
-              backgroundColor: mode === "recording" || (mode === "idle" && !textNote.trim()) ? "var(--surface-overlay)" : "var(--accent-primary)",
-              fontFamily: "var(--font-body)",
-              fontSize: "14px",
-              color: mode === "recording" || (mode === "idle" && !textNote.trim()) ? "var(--text-disabled)" : "var(--surface-base)",
-            }}
-          >
-            {mode === "recording" ? "Recording…" : "Pin it"}
-          </button>
+        <div className="px-5 pb-8">
+          <div className="flex gap-3">
+            <button
+              onClick={onClose}
+              className="flex-1 h-12 rounded-xl"
+              style={{
+                border: "1px solid var(--border-subtle)",
+                fontFamily: "var(--font-body)",
+                fontSize: "14px",
+                color: "var(--text-secondary)",
+              }}
+            >
+              Cancel
+            </button>
+            <button
+              onClick={handleSave}
+              disabled={mode === "recording" || (mode === "idle" && !textNote.trim() && !audioBlobRef.current)}
+              className="flex-1 h-12 rounded-xl font-semibold"
+              style={{
+                backgroundColor: mode === "recording" || (mode === "idle" && !textNote.trim() && !audioBlobRef.current) ? "var(--surface-overlay)" : "var(--accent-primary)",
+                fontFamily: "var(--font-body)",
+                fontSize: "14px",
+                color: mode === "recording" || (mode === "idle" && !textNote.trim() && !audioBlobRef.current) ? "var(--text-disabled)" : "var(--surface-base)",
+              }}
+            >
+              {mode === "recording" ? "Recording…" : "Pin it"}
+            </button>
+          </div>
+          {error && (
+            <p className="mt-2 text-center" style={{ fontFamily: "var(--font-body)", fontSize: "12px", color: "#FF6B6B" }}>
+              {error}
+            </p>
+          )}
         </div>
       </div>
     </>

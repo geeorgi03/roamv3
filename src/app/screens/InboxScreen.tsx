@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { ArrowLeft, Mic, Video, Play, ArrowRight, Trash2, Inbox } from "lucide-react";
-import { useNavigate } from "react-router";
+import { useNavigate, useSearchParams } from "react-router";
 import { useInbox, type InboxClip } from "../hooks/useInbox";
 import { useSessions } from "../hooks/useSessions";
 
@@ -95,10 +95,19 @@ function AssignPicker({ clip, sessions, onAssign, onClose }: AssignPickerProps) 
 
 export default function InboxScreen() {
   const navigate = useNavigate();
+  const [searchParams] = useSearchParams();
+  const targetSessionId = searchParams.get("sessionId");
+  const targetSection = searchParams.get("section");
   const { clips, loading, staleClips, assignClip, deleteClip } = useInbox();
   const { sessions } = useSessions();
   const [assigningClip, setAssigningClip] = useState<InboxClip | null>(null);
   const [deletingId, setDeletingId] = useState<string | null>(null);
+  const [toastMessage, setToastMessage] = useState<string | null>(null);
+
+  const showToast = (msg: string) => {
+    setToastMessage(msg);
+    setTimeout(() => setToastMessage(null), 2000);
+  };
 
   const handleDelete = async (clipId: string) => {
     setDeletingId(clipId);
@@ -112,7 +121,13 @@ export default function InboxScreen() {
   const handleAssign = async (clipId: string, sessionId: string) => {
     await assignClip(clipId, sessionId);
     setAssigningClip(null);
-    navigate(`/session/${sessionId}`);
+    if (targetSessionId) {
+      navigate(`/session/${targetSessionId}`);
+    } else {
+      const session = sessions.find((s) => s.id === sessionId);
+      const name = session?.songName || "session";
+      showToast(`Added to ${name} ✓`);
+    }
   };
 
   return (
@@ -269,14 +284,26 @@ export default function InboxScreen() {
                       <Play className="w-3.5 h-3.5" style={{ color: "var(--text-secondary)" }} fill="currentColor" />
                     </button>
 
-                    {/* Assign */}
-                    <button
-                      onClick={() => setAssigningClip(clip)}
-                      className="w-8 h-8 rounded-lg flex items-center justify-center"
-                      style={{ backgroundColor: "var(--surface-overlay)" }}
-                    >
-                      <ArrowRight className="w-3.5 h-3.5" style={{ color: "var(--accent-primary)" }} />
-                    </button>
+                    {/* Assign — direct assign if coming from workbench, otherwise open picker */}
+                    {targetSessionId && targetSection ? (
+                      <button
+                        onClick={() => handleAssign(clip.id, targetSessionId)}
+                        className="h-8 px-2 rounded-lg flex items-center gap-1"
+                        style={{ backgroundColor: "rgba(200,241,53,0.15)", border: "1px solid var(--accent-primary)" }}
+                      >
+                        <span style={{ fontSize: "11px", color: "var(--accent-primary)", fontFamily: "var(--font-body)", whiteSpace: "nowrap" }}>
+                          Add to {targetSection}
+                        </span>
+                      </button>
+                    ) : (
+                      <button
+                        onClick={() => setAssigningClip(clip)}
+                        className="w-8 h-8 rounded-lg flex items-center justify-center"
+                        style={{ backgroundColor: "var(--surface-overlay)" }}
+                      >
+                        <ArrowRight className="w-3.5 h-3.5" style={{ color: "var(--accent-primary)" }} />
+                      </button>
+                    )}
 
                     {/* Delete */}
                     <button
@@ -297,6 +324,22 @@ export default function InboxScreen() {
       {/* Assign picker */}
       {assigningClip && (
         <AssignPicker clip={assigningClip} sessions={sessions} onAssign={handleAssign} onClose={() => setAssigningClip(null)} />
+      )}
+
+      {/* Toast */}
+      {toastMessage && (
+        <div
+          className="fixed bottom-8 left-1/2 -translate-x-1/2 px-5 py-2.5 rounded-full pointer-events-none"
+          style={{
+            backgroundColor: "rgba(20,20,20,0.92)",
+            border: "1px solid var(--border-subtle)",
+            zIndex: 60,
+          }}
+        >
+          <span style={{ fontFamily: "var(--font-body)", fontSize: "13px", color: "var(--accent-primary)" }}>
+            {toastMessage}
+          </span>
+        </div>
       )}
     </div>
   );

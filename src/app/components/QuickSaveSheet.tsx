@@ -55,6 +55,7 @@ export default function QuickSaveSheet({ capture, onDismiss }: QuickSaveSheetPro
   const handleLater = async () => {
     await ensureSaved();
     onDismiss();
+    navigate("/inbox");
   };
 
   const handleNewSession = async () => {

@@ -442,6 +442,32 @@ app.post("/make-server-837ff822/sessions/:sessionId/loops", async (c) => {
   }
 });
 
+app.put("/make-server-837ff822/sessions/:sessionId/loops/:loopId", async (c) => {
+  try {
+    const userId = await getAuthenticatedUserId(c.req.raw);
+    if (!userId) {
+      return c.json({ error: 'Unauthorized' }, 401);
+    }
+    
+    const sessionId = c.req.param('sessionId');
+    const loopId = c.req.param('loopId');
+    const updates = await c.req.json();
+    
+    const existing = await kv.get(`loop:${userId}:${sessionId}:${loopId}`);
+    if (!existing) {
+      return c.json({ error: 'Loop region not found' }, 404);
+    }
+    
+    const loop = { ...existing, ...updates };
+    await kv.set(`loop:${userId}:${sessionId}:${loopId}`, loop);
+    
+    return c.json({ loop });
+  } catch (error) {
+    console.log(`Error updating loop region: ${error}`);
+    return c.json({ error: 'Failed to update loop region' }, 500);
+  }
+});
+
 app.delete("/make-server-837ff822/sessions/:sessionId/loops/:loopId", async (c) => {
   try {
     const userId = await getAuthenticatedUserId(c.req.raw);
