@@ -67,6 +67,7 @@ app.post('/:sessionId/clips', async (c) => {
   }
 
   const row = {
+    user_id: userId,
     session_id: sessionId,
     local_id: body.local_id,
     label: body.label ?? 'Clip',

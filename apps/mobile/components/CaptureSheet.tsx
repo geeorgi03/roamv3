@@ -11,13 +11,17 @@ import { theme } from '../lib/theme';
 export interface CaptureSheetProps {
   bottomSheetRef: React.RefObject<BottomSheet | null>;
   onRecord: () => void;
-  onGallery: () => void;
+  onInbox?: () => void;
+  inboxCount?: number;
+  sectionName?: string | null;
 }
 
 export function CaptureSheet({
   bottomSheetRef,
   onRecord,
-  onGallery,
+  onInbox,
+  inboxCount = 0,
+  sectionName,
 }: CaptureSheetProps) {
   return (
     <BottomSheet
@@ -29,6 +33,9 @@ export function CaptureSheet({
       handleIndicatorStyle={styles.handle}
     >
       <View style={styles.content}>
+        <Text style={styles.title}>
+          {sectionName ? `Add to ${sectionName}` : 'Add clip'}
+        </Text>
         <View style={styles.cardsRow}>
           <TouchableOpacity
             style={styles.card}
@@ -40,11 +47,13 @@ export function CaptureSheet({
           </TouchableOpacity>
           <TouchableOpacity
             style={styles.card}
-            onPress={onGallery}
+            onPress={onInbox}
             activeOpacity={0.8}
+            disabled={!onInbox}
           >
-            <Text style={styles.cardIcon}>🖼</Text>
-            <Text style={styles.cardTitle}>Import from gallery</Text>
+            <Text style={styles.cardIcon}>📥</Text>
+            <Text style={styles.cardTitle}>Pick from Inbox</Text>
+            <Text style={styles.cardSub}>{inboxCount} clips waiting</Text>
           </TouchableOpacity>
         </View>
       </View>
@@ -62,6 +71,12 @@ const styles = StyleSheet.create({
   content: {
     padding: 20,
     paddingBottom: 40,
+  },
+  title: {
+    color: theme.textPrimary,
+    fontSize: 16,
+    fontWeight: '800',
+    marginBottom: 12,
   },
   cardsRow: {
     flexDirection: 'row',
@@ -84,5 +99,11 @@ const styles = StyleSheet.create({
     fontSize: 16,
     fontWeight: '600',
     color: theme.textPrimary,
+    textAlign: 'center',
+  },
+  cardSub: {
+    marginTop: 6,
+    fontSize: 12,
+    color: theme.textSecondary,
   },
 });

@@ -1,4 +1,4 @@
--- Migration 004: get_shared_session RPC (anon-accessible share page)
+-- Migration 20260319000004: tighten get_shared_session token scope (session-only tokens)
 
 CREATE OR REPLACE FUNCTION get_shared_session(p_token uuid)
 RETURNS jsonb
@@ -12,7 +12,7 @@ DECLARE
   v_music_track music_tracks%ROWTYPE;
   v_clips jsonb;
 BEGIN
-  -- Look up valid share token
+  -- Look up valid *session-level* share token (clip_id must be NULL)
   SELECT st.session_id INTO v_session_id
   FROM share_tokens st
   WHERE st.token = p_token AND st.revoked_at IS NULL AND st.clip_id IS NULL;
@@ -47,3 +47,4 @@ END;
 $$;
 
 GRANT EXECUTE ON FUNCTION get_shared_session(uuid) TO anon;
+

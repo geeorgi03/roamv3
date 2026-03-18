@@ -4,7 +4,7 @@ const SCHEMA = `
 CREATE TABLE IF NOT EXISTS clips (
   local_id TEXT PRIMARY KEY,
   server_id TEXT,
-  session_id TEXT NOT NULL,
+  session_id TEXT,
   label TEXT,
   recorded_at TEXT,
   file_uri TEXT,
@@ -20,6 +20,40 @@ CREATE TABLE IF NOT EXISTS clips (
 );
 `;
 
+const MIGRATION_20260318_SESSION_ID_NULLABLE = `
+BEGIN;
+ALTER TABLE clips RENAME TO clips_old;
+CREATE TABLE clips (
+  local_id TEXT PRIMARY KEY,
+  server_id TEXT,
+  session_id TEXT,
+  label TEXT,
+  recorded_at TEXT,
+  file_uri TEXT,
+  upload_status TEXT DEFAULT 'local',
+  upload_progress INTEGER DEFAULT 0,
+  mux_playback_id TEXT,
+  move_name TEXT,
+  style TEXT,
+  energy TEXT,
+  difficulty TEXT,
+  bpm INTEGER,
+  notes TEXT
+);
+INSERT INTO clips (
+  local_id, server_id, session_id, label, recorded_at, file_uri,
+  upload_status, upload_progress, mux_playback_id,
+  move_name, style, energy, difficulty, bpm, notes
+)
+SELECT
+  local_id, server_id, session_id, label, recorded_at, file_uri,
+  upload_status, upload_progress, mux_playback_id,
+  move_name, style, energy, difficulty, bpm, notes
+FROM clips_old;
+DROP TABLE clips_old;
+COMMIT;
+`;
+
 let _db: SQLiteDatabase | null = null;
 let _dbError: Error | null = null;
 let _dbInitialized = false;
@@ -33,6 +67,18 @@ function initDb(): SQLiteDatabase | null {
     _db = openDatabaseSync('roam.db');
     _db.execSync('SELECT 1');
     _db.execSync(SCHEMA);
+
+    // One-time migration: allow inbox clips (session_id nullable)
+    try {
+      const info = _db.getAllSync<{ name: string; notnull: number }>('PRAGMA table_info(clips)');
+      const sessionCol = info?.find?.((c) => c.name === 'session_id');
+      if (sessionCol && sessionCol.notnull === 1) {
+        _db.execSync(MIGRATION_20260318_SESSION_ID_NULLABLE);
+      }
+    } catch {
+      // If PRAGMA/migration fails, keep DB usable for session clips.
+    }
+
     console.log('[database] SQLite initialised');
   } catch (e) {
     _dbError = e instanceof Error ? e : new Error(String(e));
@@ -68,7 +114,7 @@ export const db = new Proxy({} as SQLiteDatabase, {
 export interface ClipRow {
   local_id: string;
   server_id: string | null;
-  session_id: string;
+  session_id: string | null;
   label: string | null;
   recorded_at: string | null;
   file_uri: string | null;
@@ -85,7 +131,7 @@ export interface ClipRow {
 
 export interface InsertClipRow {
   local_id: string;
-  session_id: string;
+  session_id: string | null;
   label?: string | null;
   recorded_at?: string | null;
   file_uri?: string | null;
@@ -259,4 +305,17 @@ export function getClipsForSession(session_id: string): ClipRow[] {
     [session_id]
   );
   return rows;
+}
+
+export function assignLocalClipToSessionByServerId(server_id: string, session_id: string): void {
+  db.runSync('UPDATE clips SET session_id = ? WHERE server_id = ?', [session_id, server_id]);
+}
+
+/** Returns all local clips with no session assignment (inbox clips). */
+export function getInboxClips(): ClipRow[] {
+  const rows = db.getAllSync<ClipRow>(
+    'SELECT * FROM clips WHERE session_id IS NULL ORDER BY recorded_at DESC',
+    []
+  );
+  return rows ?? [];
 }

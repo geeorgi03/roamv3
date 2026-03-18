@@ -60,6 +60,9 @@ import { publicFeedbackRoutes } from './routes/feedbackPublic.js';
 import { webhooksRoutes } from './routes/webhooks.js';
 import { libraryRoutes } from './routes/library.js';
 import { billingRoutes } from './routes/billing.js';
+import { inboxRoutes } from './routes/inbox.js';
+import { notePinsRoutes } from './routes/notePins.js';
+import { clipShareRoutes } from './routes/share.js';
 
 const app = new Hono();
 
@@ -84,11 +87,14 @@ app.route('/sessions', clipsRoutes);
 app.route('/sessions', assemblyRoutes);
 app.route('/sessions', sessionsRoutes);
 app.route('/sessions', shareRoutes);
+app.route('/sessions', notePinsRoutes);
 app.route('/clips', feedbackRoutes);
 app.route('/clips', annotationsRoutes);
 app.route('/clips', tagHistoryRoutes);
 app.route('/clips', tagsRoutes);
 app.route('/clips', muxRoutes); // POST /clips/upload-url
+app.route('/clips', clipShareRoutes);
+app.route('/inbox', inboxRoutes);
 app.route('/feedback', publicFeedbackRoutes);
 app.route('/webhooks', webhooksRoutes); // POST /webhooks/mux
 app.route('/library', libraryRoutes);

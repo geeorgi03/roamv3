@@ -10,12 +10,11 @@ import { useLocalSearchParams, useRouter } from 'expo-router';
 import { CameraView, useCameraPermissions, useMicrophonePermissions } from 'expo-camera';
 import { Video, ResizeMode } from 'expo-av';
 import { theme } from '../../../lib/theme';
-import { storage } from '../../../lib/storage';
-
-const PENDING_CLIP_KEY = 'pending_camera_clip';
+import BottomSheet from '@gorhom/bottom-sheet';
+import { QuickSaveSheet } from '../../../components/QuickSaveSheet';
 
 export default function CameraScreen() {
-  const { id: sessionId } = useLocalSearchParams<{ id: string }>();
+  const { id: sessionId, sectionName } = useLocalSearchParams<{ id?: string; sectionName?: string }>();
   const router = useRouter();
   const cameraRef = useRef<CameraView>(null);
   const [cameraPermission, requestCameraPermission] = useCameraPermissions();
@@ -23,6 +22,7 @@ export default function CameraScreen() {
   const [isRecording, setIsRecording] = useState(false);
   const [recordedUri, setRecordedUri] = useState<string | null>(null);
   const recordingPromiseRef = useRef<Promise<{ uri: string } | undefined> | null>(null);
+  const quickSaveRef = useRef<BottomSheet | null>(null);
 
   useEffect(() => {
     if (!cameraPermission?.granted) requestCameraPermission();
@@ -30,7 +30,7 @@ export default function CameraScreen() {
   }, [cameraPermission?.granted, micPermission?.granted, requestCameraPermission, requestMicPermission]);
 
   const handleRecordPress = async () => {
-    if (!cameraRef.current || !sessionId) return;
+    if (!cameraRef.current) return;
     if (!isRecording) {
       try {
         const promise = cameraRef.current.recordAsync();
@@ -51,10 +51,8 @@ export default function CameraScreen() {
   };
 
   const handleSave = () => {
-    if (recordedUri && sessionId) {
-      storage?.set(PENDING_CLIP_KEY, JSON.stringify({ sessionId, uri: recordedUri }));
-      router.back();
-    }
+    if (!recordedUri) return;
+    quickSaveRef.current?.snapToIndex(0);
   };
 
   const handleRetake = () => {
@@ -91,6 +89,19 @@ export default function CameraScreen() {
             <Text style={styles.buttonText}>Save</Text>
           </TouchableOpacity>
         </View>
+        <QuickSaveSheet
+          bottomSheetRef={quickSaveRef}
+          videoUri={recordedUri}
+          sessionId={typeof sessionId === 'string' ? sessionId : null}
+          sectionName={typeof sectionName === 'string' ? sectionName : null}
+          onDone={(next) => {
+            if (next?.navigateTo) {
+              router.replace(next.navigateTo);
+            } else {
+              router.back();
+            }
+          }}
+        />
       </View>
     );
   }

@@ -49,18 +49,27 @@ app.post('/', async (c) => {
     return c.json({ error: 'Clip not found' }, 404);
   }
 
-  const { data: shareTokenRows, error: tokenError } = await supabase
+  const { data: shareTokenRow, error: tokenError } = await supabase
     .from('share_tokens')
-    .select('session_id')
+    .select('session_id, clip_id')
     .eq('token', trimmedShareToken)
     .is('revoked_at', null)
-    .limit(1);
+    .maybeSingle();
 
   if (tokenError) return c.json({ error: 'Invalid or expired share token' }, 403);
 
-  const shareToken = shareTokenRows?.[0] ?? null;
-  if (!shareToken || shareToken.session_id !== clipRow.session_id) {
-    return c.json({ error: 'Invalid or expired share token' }, 403);
+  if (!shareTokenRow) return c.json({ error: 'Invalid or expired share token' }, 403);
+
+  // Clip-scoped tokens must match the requested clip_id exactly.
+  if (shareTokenRow.clip_id) {
+    if (shareTokenRow.clip_id !== clip_id) {
+      return c.json({ error: 'Invalid or expired share token' }, 403);
+    }
+  } else {
+    // Legacy session-level tokens: allow any clip within the session.
+    if (!clipRow.session_id || shareTokenRow.session_id !== clipRow.session_id) {
+      return c.json({ error: 'Invalid or expired share token' }, 403);
+    }
   }
 
   const { data: openRequests, error: fetchError } = await supabase

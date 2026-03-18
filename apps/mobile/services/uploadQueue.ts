@@ -6,7 +6,7 @@ import { API_BASE } from '../lib/api';
 
 export interface QueueItem {
   local_id: string;
-  session_id: string;
+  session_id: string | null;
   file_uri: string;
   label: string;
   recorded_at: string;
@@ -17,6 +17,8 @@ export interface QueueItem {
   attempt_count: number;
   next_retry_at?: number;
   status: 'queued' | 'uploading' | 'failed';
+  /** When set, a section_clips entry will be created server-side after upload. */
+  section_label?: string;
 }
 
 type UploadQueueStatus =
@@ -203,12 +205,20 @@ export class UploadQueueService {
             'Content-Type': 'application/json',
             Authorization: `Bearer ${item.token}`,
           },
-          body: JSON.stringify({
-            session_id: item.session_id,
-            local_id: item.local_id,
-            recorded_at: item.recorded_at,
-            label: item.label,
-          }),
+          body: JSON.stringify(
+            item.session_id
+              ? {
+                  session_id: item.session_id,
+                  local_id: item.local_id,
+                  recorded_at: item.recorded_at,
+                  label: item.label,
+                }
+              : {
+                  local_id: item.local_id,
+                  recorded_at: item.recorded_at,
+                  label: item.label,
+                }
+          ),
         });
         const data = (await res.json()) as
           | { clip_id: string; upload_url: string; mux_upload_id?: string }
@@ -238,6 +248,17 @@ export class UploadQueueService {
 
         updateClipServerData(item.local_id, clip_id);
         setTusUrls({ ...getTusUrls(), [item.local_id]: upload_url });
+
+        // If the clip was saved with a section label, create the section_clips
+        // association now that we have the authoritative server clip_id.
+        if (item.section_label && item.session_id) {
+          void this._createSectionAssignment(
+            clip_id,
+            item.session_id,
+            item.section_label,
+            item.token
+          );
+        }
       }
 
       item.status = 'uploading';
@@ -303,6 +324,27 @@ export class UploadQueueService {
         updateClipStatusWithEvent(current.local_id, 'failed');
       }
       this.processQueue();
+    }
+  }
+
+  /** Best-effort: register a clip with a section after its server ID is known. */
+  private async _createSectionAssignment(
+    clipId: string,
+    sessionId: string,
+    sectionLabel: string,
+    token: string
+  ) {
+    try {
+      await fetch(`${API_BASE}/sessions/${sessionId}/assembly/section-clip`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${token}`,
+        },
+        body: JSON.stringify({ clip_id: clipId, section_label: sectionLabel }),
+      });
+    } catch {
+      // Ignore – section assignment is best-effort; the clip is still saved.
     }
   }
 

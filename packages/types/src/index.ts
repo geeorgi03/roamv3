@@ -44,7 +44,8 @@ export interface Session {
 /** ---- Clip (Tech Plan) ---- */
 export interface Clip {
   id: UUID;
-  session_id: UUID;
+  user_id: UUID;
+  session_id: UUID | null;
   label: string | null;
   mux_upload_id: string | null;
   mux_playback_id: string | null;

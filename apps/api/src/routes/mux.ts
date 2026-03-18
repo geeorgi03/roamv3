@@ -38,15 +38,18 @@ app.post('/upload-url', async (c) => {
     return c.json({ error: 'Invalid request body' }, 400);
   }
 
-  if (!body?.session_id || !body?.local_id || !body?.recorded_at) {
+  if (!body?.local_id || !body?.recorded_at) {
     return c.json(
-      { error: 'session_id, local_id, and recorded_at are required' },
+      { error: 'local_id and recorded_at are required' },
       400
     );
   }
 
-  const session = await getSessionForUser(body.session_id, userId);
-  if (!session) return c.json({ error: 'Not found' }, 404);
+  const hasSession = typeof body.session_id === 'string' && body.session_id.length > 0;
+  if (hasSession) {
+    const session = await getSessionForUser(body.session_id!, userId);
+    if (!session) return c.json({ error: 'Not found' }, 404);
+  }
 
   const limitResult = await evaluateClipLimit(userId);
   if (!limitResult.allowed) return c.json(limitResult.body, limitResult.status);
@@ -65,15 +68,31 @@ app.post('/upload-url', async (c) => {
       local_id: body!.local_id,
     });
 
-  // Idempotent by (session_id, local_id): reuse existing clip and issue fresh Mux URL
-  const { data: existingClip } = await supabase
+  // Idempotent by ownership + local_id (session-scoped or inbox-scoped)
+  const existingQuery = supabase
     .from('clips')
     .select('id')
-    .eq('session_id', body.session_id)
     .eq('local_id', body.local_id)
-    .maybeSingle();
+    // Explicit multi-row detection; never silently fall through to insert.
+    .limit(2);
+  const { data: existingClips, error: existingError } = hasSession
+    ? await existingQuery.eq('session_id', body.session_id!)
+    : await existingQuery.eq('user_id', userId).is('session_id', null);
 
   let clipId: string;
+
+  if (existingError) {
+    return c.json({ error: existingError.message }, 500);
+  }
+
+  if (Array.isArray(existingClips) && existingClips.length > 1) {
+    return c.json(
+      { error: 'Multiple clips found for local_id; cannot choose deterministically' },
+      409
+    );
+  }
+
+  const existingClip = Array.isArray(existingClips) ? existingClips[0] : null;
 
   if (existingClip?.id) {
     clipId = existingClip.id;
@@ -81,7 +100,8 @@ app.post('/upload-url', async (c) => {
     const { data: insertedClip, error: insertError } = await supabase
       .from('clips')
       .insert({
-        session_id: body.session_id,
+        user_id: userId,
+        session_id: hasSession ? body.session_id : null,
         local_id: body.local_id,
         label: body.label ?? 'Clip',
         recorded_at: body.recorded_at,
