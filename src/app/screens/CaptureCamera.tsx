@@ -1,6 +1,6 @@
 import { useState, useRef, useEffect, useCallback } from "react";
 import { X, Mic, RotateCcw } from "lucide-react";
-import { useNavigate } from "react-router";
+import { useNavigate, useSearchParams } from "react-router";
 import QuickSaveSheet, { type CaptureResult } from "../components/QuickSaveSheet";
 
 type CaptureMode = "idle" | "video-recording" | "voice-recording" | "saved";
@@ -9,6 +9,10 @@ const LONG_PRESS_MS = 500;
 
 export default function CaptureCamera() {
   const navigate = useNavigate();
+  const [searchParams] = useSearchParams();
+  const sessionId = searchParams.get("sessionId");
+  const section = searchParams.get("section");
+  const fromCaptureFirst = !sessionId;
 
   const [mode, setMode] = useState<CaptureMode>("idle");
   const [recordingTime, setRecordingTime] = useState(0);
@@ -491,6 +495,9 @@ export default function CaptureCamera() {
             // restart camera
             startCamera();
           }}
+          fromCaptureFirst={fromCaptureFirst}
+          targetSessionId={sessionId || undefined}
+          targetSection={section || undefined}
         />
       )}
     </div>

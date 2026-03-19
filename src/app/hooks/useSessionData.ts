@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import { apiRequest } from '../../utils/supabase';
 
 export interface Session {
@@ -74,62 +74,66 @@ export function useSessionData(sessionId: string | null) {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
-  useEffect(() => {
+  const loadData = useCallback(async () => {
     if (!sessionId) {
       setLoading(false);
       return;
     }
 
-    const loadData = async () => {
-      try {
-        setLoading(true);
-        setError(null);
+    try {
+      setLoading(true);
+      setError(null);
 
-        // Load session
-        const sessionRes = await apiRequest(`/sessions/${sessionId}`);
-        if (!sessionRes.ok) {
-          throw new Error('Failed to load session');
-        }
-        const sessionData = await sessionRes.json();
-        setSession(sessionData.session);
-
-        // Load clips
-        const clipsRes = await apiRequest(`/sessions/${sessionId}/clips`);
-        if (clipsRes.ok) {
-          const clipsData = await clipsRes.json();
-          setClips(clipsData.clips || []);
-        }
-
-        // Load notes
-        const notesRes = await apiRequest(`/sessions/${sessionId}/notes`);
-        if (notesRes.ok) {
-          const notesData = await notesRes.json();
-          setNotes(notesData.notes || []);
-        }
-
-        // Load loops
-        const loopsRes = await apiRequest(`/sessions/${sessionId}/loops`);
-        if (loopsRes.ok) {
-          const loopsData = await loopsRes.json();
-          setLoops(loopsData.loops || []);
-        }
-
-        // Load floor marks
-        const marksRes = await apiRequest(`/sessions/${sessionId}/marks`);
-        if (marksRes.ok) {
-          const marksData = await marksRes.json();
-          setMarks(marksData.marks || []);
-        }
-      } catch (err) {
-        console.error('Error loading session data:', err);
-        setError(err instanceof Error ? err.message : 'Failed to load data');
-      } finally {
-        setLoading(false);
+      // Load session
+      const sessionRes = await apiRequest(`/sessions/${sessionId}`);
+      if (!sessionRes.ok) {
+        throw new Error('Failed to load session');
       }
-    };
+      const sessionData = await sessionRes.json();
+      setSession(sessionData.session);
 
-    loadData();
+      // Load clips
+      const clipsRes = await apiRequest(`/sessions/${sessionId}/clips`);
+      if (clipsRes.ok) {
+        const clipsData = await clipsRes.json();
+        setClips(clipsData.clips || []);
+      }
+
+      // Load notes
+      const notesRes = await apiRequest(`/sessions/${sessionId}/notes`);
+      if (notesRes.ok) {
+        const notesData = await notesRes.json();
+        setNotes(notesData.notes || []);
+      }
+
+      // Load loops
+      const loopsRes = await apiRequest(`/sessions/${sessionId}/loops`);
+      if (loopsRes.ok) {
+        const loopsData = await loopsRes.json();
+        setLoops(loopsData.loops || []);
+      }
+
+      // Load floor marks
+      const marksRes = await apiRequest(`/sessions/${sessionId}/marks`);
+      if (marksRes.ok) {
+        const marksData = await marksRes.json();
+        setMarks(marksData.marks || []);
+      }
+    } catch (err) {
+      console.error('Error loading session data:', err);
+      setError(err instanceof Error ? err.message : 'Failed to load data');
+    } finally {
+      setLoading(false);
+    }
   }, [sessionId]);
+
+  useEffect(() => {
+    loadData();
+  }, [loadData]);
+
+  const refresh = useCallback(() => {
+    loadData();
+  }, [loadData]);
 
   const updateSession = async (updates: Partial<Session>) => {
     if (!sessionId) return;
@@ -399,6 +403,7 @@ export function useSessionData(sessionId: string | null) {
     marks,
     loading,
     error,
+    refresh,
     updateSession,
     addClip,
     deleteClip,

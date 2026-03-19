@@ -1,8 +1,29 @@
-import { useState } from "react";
-import { ArrowLeft, Mic, Video, Play, ArrowRight, Trash2, Inbox } from "lucide-react";
+import { useState, useEffect, useRef } from "react";
+import { ArrowLeft, Mic, Video, Play, ArrowRight, Trash2, Inbox, WifiOff, AlertCircle } from "lucide-react";
 import { useNavigate, useSearchParams } from "react-router";
 import { useInbox, type InboxClip } from "../hooks/useInbox";
 import { useSessions } from "../hooks/useSessions";
+
+function useOnlineStatus() {
+  const [online, setOnline] = useState(typeof navigator !== "undefined" ? navigator.onLine : true);
+  useEffect(() => {
+    const handleOnline = () => setOnline(true);
+    const handleOffline = () => setOnline(false);
+    window.addEventListener("online", handleOnline);
+    window.addEventListener("offline", handleOffline);
+    return () => {
+      window.removeEventListener("online", handleOnline);
+      window.removeEventListener("offline", handleOffline);
+    };
+  }, []);
+  return online;
+}
+
+type PendingDelete = {
+  clipId: string;
+  clip: InboxClip;
+  countdown: number;
+};
 
 function formatDate(iso: string) {
   const d = new Date(iso);
@@ -30,9 +51,12 @@ interface AssignPickerProps {
   sessions: ReturnType<typeof useSessions>["sessions"];
   onAssign: (clipId: string, sessionId: string) => void;
   onClose: () => void;
+  onKeepInInbox?: () => void;
+  assignError?: string | null;
+  assigning?: boolean;
 }
 
-function AssignPicker({ clip, sessions, onAssign, onClose }: AssignPickerProps) {
+function AssignPicker({ clip, sessions, onAssign, onClose, onKeepInInbox, assignError, assigning }: AssignPickerProps) {
   return (
     <>
       <div className="fixed inset-0 z-40" style={{ backgroundColor: "rgba(0,0,0,0.6)" }} onClick={onClose} />
@@ -62,7 +86,29 @@ function AssignPicker({ clip, sessions, onAssign, onClose }: AssignPickerProps) 
             Cancel
           </button>
         </div>
-        <div className="overflow-auto pb-8">
+
+        {/* Assign error inline */}
+        {assignError && (
+          <div
+            className="mx-5 mb-2 px-3 py-2 rounded-lg"
+            style={{ backgroundColor: "rgba(255, 107, 53, 0.1)", border: "1px solid rgba(255, 107, 53, 0.3)" }}
+          >
+            <p style={{ fontFamily: "var(--font-body)", fontSize: "13px", color: "var(--accent-warm)" }}>
+              {assignError}
+            </p>
+            {onKeepInInbox && (
+              <button
+                onClick={onKeepInInbox}
+                className="mt-2"
+                style={{ fontFamily: "var(--font-body)", fontSize: "12px", color: "var(--text-secondary)" }}
+              >
+                Keep in Inbox instead
+              </button>
+            )}
+          </div>
+        )}
+
+        <div className="overflow-auto pb-8" style={{ opacity: assigning ? 0.5 : 1, pointerEvents: assigning ? "none" : "auto" }}>
           {sessions.length === 0 ? (
             <p className="px-5 py-8 text-center" style={{ fontFamily: "var(--font-body)", fontSize: "13px", color: "var(--text-disabled)" }}>
               No sessions yet
@@ -103,31 +149,115 @@ export default function InboxScreen() {
   const [assigningClip, setAssigningClip] = useState<InboxClip | null>(null);
   const [deletingId, setDeletingId] = useState<string | null>(null);
   const [toastMessage, setToastMessage] = useState<string | null>(null);
+  const [pendingDelete, setPendingDelete] = useState<PendingDelete | null>(null);
+  const countdownRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const deleteTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const online = useOnlineStatus();
+  const [assignError, setAssignError] = useState<string | null>(null);
+  const [assignErrorClipId, setAssignErrorClipId] = useState<string | null>(null);
+  const [assigning, setAssigning] = useState(false);
+
+  useEffect(() => {
+    return () => {
+      if (deleteTimerRef.current) clearTimeout(deleteTimerRef.current);
+      if (countdownRef.current) clearInterval(countdownRef.current);
+    };
+  }, []);
 
   const showToast = (msg: string) => {
     setToastMessage(msg);
     setTimeout(() => setToastMessage(null), 2000);
   };
 
-  const handleDelete = async (clipId: string) => {
-    setDeletingId(clipId);
+  const handleDelete = (clipId: string) => {
+    const clip = clips.find((c) => c.id === clipId);
+    if (!clip) return;
+
+    if (deleteTimerRef.current) {
+      clearTimeout(deleteTimerRef.current);
+    }
+    if (countdownRef.current) {
+      clearInterval(countdownRef.current);
+    }
+
+    const timerId = setTimeout(async () => {
+      deleteTimerRef.current = null;
+      if (countdownRef.current) clearInterval(countdownRef.current);
+      setPendingDelete(null);
+      setDeletingId(clipId);
+      try {
+        await deleteClip(clipId);
+      } catch (err) {
+        showToast("Failed to delete. Restored.");
+      } finally {
+        setDeletingId(null);
+      }
+    }, 5000);
+
+    deleteTimerRef.current = timerId;
+    setPendingDelete({ clipId, clip, countdown: 5 });
+
+    countdownRef.current = setInterval(() => {
+      setPendingDelete((prev) => {
+        if (!prev || prev.clipId !== clipId) return prev;
+        if (prev.countdown <= 1) {
+          if (countdownRef.current) clearInterval(countdownRef.current);
+          return prev;
+        }
+        return { ...prev, countdown: prev.countdown - 1 };
+      });
+    }, 1000);
+  };
+
+  const handleUndo = () => {
+    if (!pendingDelete) return;
+    if (deleteTimerRef.current) {
+      clearTimeout(deleteTimerRef.current);
+      deleteTimerRef.current = null;
+    }
+    if (countdownRef.current) {
+      clearInterval(countdownRef.current);
+      countdownRef.current = null;
+    }
+    setPendingDelete(null);
+    showToast("Restored");
+  };
+
+  const visibleClips = clips.filter((c) => c.id !== pendingDelete?.clipId);
+
+  const handleAssign = async (clipId: string, sessionId: string) => {
+    if (!online) {
+      showToast("You're offline — assign when back online");
+      return;
+    }
+    setAssignError(null);
+    setAssignErrorClipId(null);
+    setAssigning(true);
     try {
-      await deleteClip(clipId);
-    } finally {
-      setDeletingId(null);
+      await assignClip(clipId, sessionId, targetSessionId ? targetSection || undefined : undefined);
+      setAssigningClip(null);
+      setAssigning(false);
+      if (targetSessionId) {
+        const sectionLabel = targetSection || "session";
+        navigate(`/session/${targetSessionId}?toast=Added+to+${encodeURIComponent(sectionLabel)}`);
+      } else {
+        const session = sessions.find((s) => s.id === sessionId);
+        const name = session?.songName || "session";
+        showToast(`Added to ${name} ✓`);
+      }
+    } catch (err) {
+      const session = sessions.find((s) => s.id === sessionId);
+      const sectionLabel = targetSection || session?.songName || "session";
+      setAssignError(`Couldn't save to ${sectionLabel}. Try again or keep in Inbox.`);
+      setAssignErrorClipId(clipId);
+      setAssigning(false);
     }
   };
 
-  const handleAssign = async (clipId: string, sessionId: string) => {
-    await assignClip(clipId, sessionId, targetSessionId ? targetSection || undefined : undefined);
+  const handleKeepInInbox = () => {
+    setAssignError(null);
+    setAssignErrorClipId(null);
     setAssigningClip(null);
-    if (targetSessionId) {
-      navigate(`/session/${targetSessionId}`);
-    } else {
-      const session = sessions.find((s) => s.id === sessionId);
-      const name = session?.songName || "session";
-      showToast(`Added to ${name} ✓`);
-    }
   };
 
   return (
@@ -209,7 +339,7 @@ export default function InboxScreen() {
             Retry
           </button>
         </div>
-      ) : clips.length === 0 ? (
+      ) : visibleClips.length === 0 && !pendingDelete ? (
         /* Empty state */
         <div className="flex-1 flex flex-col items-center justify-center gap-3 px-8">
           <Inbox className="w-10 h-10" style={{ color: "var(--text-disabled)" }} />
@@ -238,7 +368,7 @@ export default function InboxScreen() {
         </div>
       ) : (
         <div className="flex-1 overflow-auto pt-2 pb-8">
-          {clips.map((clip) => {
+          {visibleClips.map((clip) => {
             const stale = isOlderThan48h(clip.createdAt);
             return (
               <div
@@ -307,20 +437,36 @@ export default function InboxScreen() {
                     {targetSessionId && targetSection ? (
                       <button
                         onClick={() => handleAssign(clip.id, targetSessionId)}
+                        disabled={!online}
                         className="h-8 px-2 rounded-lg flex items-center gap-1"
-                        style={{ backgroundColor: "rgba(200,241,53,0.15)", border: "1px solid var(--accent-primary)" }}
+                        style={{
+                          backgroundColor: online ? "rgba(200,241,53,0.15)" : "var(--surface-overlay)",
+                          border: `1px solid ${online ? "var(--accent-primary)" : "var(--border-subtle)"}`,
+                          opacity: online ? 1 : 0.5,
+                        }}
                       >
-                        <span style={{ fontSize: "11px", color: "var(--accent-primary)", fontFamily: "var(--font-body)", whiteSpace: "nowrap" }}>
+                        {!online && <WifiOff className="w-3 h-3" style={{ color: "var(--text-disabled)" }} />}
+                        <span style={{ fontSize: "11px", color: online ? "var(--accent-primary)" : "var(--text-disabled)", fontFamily: "var(--font-body)", whiteSpace: "nowrap" }}>
                           Add to {targetSection}
                         </span>
                       </button>
                     ) : (
                       <button
-                        onClick={() => setAssigningClip(clip)}
+                        onClick={() => {
+                          if (online) {
+                            setAssigningClip(clip);
+                          } else {
+                            showToast("You're offline — assign when back online");
+                          }
+                        }}
                         className="w-8 h-8 rounded-lg flex items-center justify-center"
-                        style={{ backgroundColor: "var(--surface-overlay)" }}
+                        style={{ backgroundColor: "var(--surface-overlay)", opacity: online ? 1 : 0.5 }}
                       >
-                        <ArrowRight className="w-3.5 h-3.5" style={{ color: "var(--accent-primary)" }} />
+                        {online ? (
+                          <ArrowRight className="w-3.5 h-3.5" style={{ color: "var(--accent-primary)" }} />
+                        ) : (
+                          <WifiOff className="w-3.5 h-3.5" style={{ color: "var(--text-disabled)" }} />
+                        )}
                       </button>
                     )}
 
@@ -334,6 +480,45 @@ export default function InboxScreen() {
                     </button>
                   </div>
                 </div>
+
+                {/* Inline error for direct assign mode */}
+                {targetSessionId && targetSection && assignErrorClipId === clip.id && assignError && (
+                  <div
+                    className="px-4 py-3 flex items-start gap-2"
+                    style={{
+                      borderTop: "1px solid var(--border-subtle)",
+                      backgroundColor: "rgba(255, 107, 53, 0.06)",
+                    }}
+                  >
+                    <AlertCircle className="w-4 h-4 mt-0.5 flex-shrink-0" style={{ color: "var(--accent-warm)" }} />
+                    <div className="flex-1">
+                      <p style={{ fontFamily: "var(--font-body)", fontSize: "13px", color: "var(--accent-warm)" }}>
+                        {assignError}
+                      </p>
+                      <div className="flex gap-3 mt-2">
+                        <button
+                          onClick={() => handleAssign(clip.id, targetSessionId)}
+                          disabled={assigning}
+                          style={{
+                            fontFamily: "var(--font-body)",
+                            fontSize: "12px",
+                            color: "var(--accent-primary)",
+                            fontWeight: 600,
+                            opacity: assigning ? 0.5 : 1,
+                          }}
+                        >
+                          {assigning ? "Retrying…" : "Retry"}
+                        </button>
+                        <button
+                          onClick={handleKeepInInbox}
+                          style={{ fontFamily: "var(--font-body)", fontSize: "12px", color: "var(--text-secondary)" }}
+                        >
+                          Keep in Inbox
+                        </button>
+                      </div>
+                    </div>
+                  </div>
+                )}
               </div>
             );
           })}
@@ -342,11 +527,19 @@ export default function InboxScreen() {
 
       {/* Assign picker */}
       {assigningClip && (
-        <AssignPicker clip={assigningClip} sessions={sessions} onAssign={handleAssign} onClose={() => setAssigningClip(null)} />
+        <AssignPicker
+          clip={assigningClip}
+          sessions={sessions}
+          onAssign={handleAssign}
+          onClose={() => { setAssigningClip(null); setAssignError(null); setAssignErrorClipId(null); }}
+          onKeepInInbox={handleKeepInInbox}
+          assignError={assignError}
+          assigning={assigning}
+        />
       )}
 
       {/* Toast */}
-      {toastMessage && (
+      {toastMessage && !pendingDelete && (
         <div
           className="fixed bottom-8 left-1/2 -translate-x-1/2 px-5 py-2.5 rounded-full pointer-events-none"
           style={{
@@ -358,6 +551,48 @@ export default function InboxScreen() {
           <span style={{ fontFamily: "var(--font-body)", fontSize: "13px", color: "var(--accent-primary)" }}>
             {toastMessage}
           </span>
+        </div>
+      )}
+
+      {/* Undo delete toast */}
+      {pendingDelete && (
+        <div
+          className="fixed bottom-8 left-4 right-4 px-4 py-3 rounded-xl flex items-center justify-between"
+          style={{
+            backgroundColor: "rgba(20,20,20,0.95)",
+            border: "1px solid var(--border-subtle)",
+            zIndex: 60,
+          }}
+        >
+          <div className="flex items-center gap-3">
+            <div
+              className="w-8 h-8 rounded-full flex items-center justify-center"
+              style={{
+                backgroundColor: "var(--surface-overlay)",
+                fontFamily: "var(--font-mono)",
+                fontSize: "12px",
+                color: "var(--text-secondary)",
+              }}
+            >
+              {pendingDelete.countdown}
+            </div>
+            <span style={{ fontFamily: "var(--font-body)", fontSize: "13px", color: "var(--text-primary)" }}>
+              Clip deleted
+            </span>
+          </div>
+          <button
+            onClick={handleUndo}
+            className="px-4 py-2 rounded-lg"
+            style={{
+              backgroundColor: "var(--accent-primary)",
+              fontFamily: "var(--font-body)",
+              fontSize: "13px",
+              fontWeight: 600,
+              color: "var(--surface-base)",
+            }}
+          >
+            Undo
+          </button>
         </div>
       )}
     </div>

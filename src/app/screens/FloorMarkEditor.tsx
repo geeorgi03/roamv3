@@ -1,6 +1,7 @@
-import { ArrowLeft, MoreVertical, ChevronLeft, ChevronRight } from "lucide-react";
-import { useNavigate } from "react-router";
+import { ArrowLeft, MoreVertical, ChevronLeft, ChevronRight, Users } from "lucide-react";
+import { useNavigate, useParams } from "react-router";
 import { useState } from "react";
+import { useSessionData } from "../hooks/useSessionData";
 
 interface DancerToken {
   id: string;
@@ -14,6 +15,8 @@ interface DancerToken {
 
 export default function FloorMarkEditor() {
   const navigate = useNavigate();
+  const { id: sessionId } = useParams();
+  const { session, loading, error } = useSessionData(sessionId || null);
   const [selectedToken, setSelectedToken] = useState<string | null>("BL");
   const [activeTab, setActiveTab] = useState("marks");
   const [currentMark] = useState(2);
@@ -27,6 +30,70 @@ export default function FloorMarkEditor() {
     { id: "EV", initials: "EV", name: "Eva", color: "var(--formation-pink)", x: 50, y: 45, direction: 0 },
     { id: "FN", initials: "FN", name: "Finn", color: "var(--formation-blue)", x: 68, y: 65, direction: 315 },
   ];
+
+  if (loading) {
+    return (
+      <div className="min-h-screen flex items-center justify-center" style={{ backgroundColor: '#0A0A0C' }}>
+        <div style={{ fontFamily: "var(--font-body)", fontSize: "14px", color: "var(--text-secondary)" }}>
+          Loading formation…
+        </div>
+      </div>
+    );
+  }
+
+  if (error) {
+    return (
+      <div className="min-h-screen flex flex-col items-center justify-center gap-3 px-8" style={{ backgroundColor: '#0A0A0C' }}>
+        <p style={{ fontFamily: "var(--font-body)", fontSize: "14px", color: "var(--accent-warm)", textAlign: "center" }}>
+          {error}
+        </p>
+        <button
+          onClick={() => navigate(-1)}
+          className="px-4 py-2 rounded-lg"
+          style={{
+            backgroundColor: "var(--surface-raised)",
+            border: "1px solid var(--border-subtle)",
+            fontFamily: "var(--font-body)",
+            fontSize: "13px",
+            color: "var(--text-secondary)",
+          }}
+        >
+          Go back
+        </button>
+      </div>
+    );
+  }
+
+  if (!session) {
+    return (
+      <div className="min-h-screen flex flex-col" style={{ backgroundColor: '#0A0A0C' }}>
+        <div className="h-11 px-4 flex items-center">
+          <button onClick={() => navigate(-1)}>
+            <ArrowLeft className="w-5 h-5" style={{ color: 'var(--text-secondary)' }} />
+          </button>
+        </div>
+        <div className="flex-1 flex flex-col items-center justify-center gap-3 px-8">
+          <Users className="w-10 h-10" style={{ color: "var(--text-disabled)" }} />
+          <p style={{ fontFamily: "var(--font-app-title)", fontWeight: 600, fontSize: "16px", color: "var(--text-secondary)", textAlign: "center" }}>
+            Session not found
+          </p>
+          <button
+            onClick={() => navigate("/")}
+            className="mt-4 px-6 py-2.5 rounded-lg"
+            style={{
+              backgroundColor: "var(--accent-primary)",
+              fontFamily: "var(--font-body)",
+              fontSize: "14px",
+              fontWeight: 600,
+              color: "var(--surface-base)",
+            }}
+          >
+            Go home
+          </button>
+        </div>
+      </div>
+    );
+  }
 
   const tabs = [
     { id: "marks", icon: "◎", label: "Marks" },

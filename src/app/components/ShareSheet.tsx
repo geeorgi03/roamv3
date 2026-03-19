@@ -1,6 +1,21 @@
 import { useState, useEffect } from "react";
-import { X, Check, Copy, ExternalLink, AlertCircle } from "lucide-react";
+import { X, Check, Copy, ExternalLink, AlertCircle, WifiOff } from "lucide-react";
 import { apiRequest } from "../../utils/supabase";
+
+function useOnlineStatus() {
+  const [online, setOnline] = useState(typeof navigator !== "undefined" ? navigator.onLine : true);
+  useEffect(() => {
+    const handleOnline = () => setOnline(true);
+    const handleOffline = () => setOnline(false);
+    window.addEventListener("online", handleOnline);
+    window.addEventListener("offline", handleOffline);
+    return () => {
+      window.removeEventListener("online", handleOnline);
+      window.removeEventListener("offline", handleOffline);
+    };
+  }, []);
+  return online;
+}
 
 interface ShareSheetProps {
   isOpen: boolean;
@@ -21,6 +36,7 @@ export default function ShareSheet({ isOpen, onClose, clipId, sessionId, clipLab
   const [generating, setGenerating] = useState(false);
   const [genError, setGenError] = useState<string | null>(null);
   const [copied, setCopied] = useState(false);
+  const online = useOnlineStatus();
 
   useEffect(() => {
     if (!isOpen) {
@@ -30,6 +46,10 @@ export default function ShareSheet({ isOpen, onClose, clipId, sessionId, clipLab
   }, [isOpen]);
 
   const handleGenerateLink = async () => {
+    if (!online) {
+      setGenError("Internet required to generate link");
+      return;
+    }
     if (!sessionId) {
       setGenError("Session context required to generate share link");
       return;
@@ -59,6 +79,10 @@ export default function ShareSheet({ isOpen, onClose, clipId, sessionId, clipLab
   };
 
   const handleRevokeLink = async () => {
+    if (!online) {
+      setGenError("Internet required to revoke link");
+      return;
+    }
     if (!clipId && !sessionId) return;
     setGenerating(true);
     setGenError(null);
@@ -172,7 +196,11 @@ export default function ShareSheet({ isOpen, onClose, clipId, sessionId, clipLab
             className="flex items-center gap-2 px-3 py-2 rounded-lg mb-4"
             style={{ backgroundColor: "rgba(255,107,107,0.1)", border: "1px solid rgba(255,107,107,0.2)" }}
           >
-            <AlertCircle className="w-4 h-4 flex-shrink-0" style={{ color: "#FF6B6B" }} />
+            {genError.includes("Internet") ? (
+              <WifiOff className="w-4 h-4 flex-shrink-0" style={{ color: "#FF6B6B" }} />
+            ) : (
+              <AlertCircle className="w-4 h-4 flex-shrink-0" style={{ color: "#FF6B6B" }} />
+            )}
             <p style={{ fontFamily: "var(--font-body)", fontSize: "12px", color: "#FF6B6B" }}>{genError}</p>
           </div>
         )}

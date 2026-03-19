@@ -3,6 +3,7 @@ import { useParams } from "react-router";
 import { apiRequest } from "../../utils/supabase";
 
 type ViewerState = "watching" | "submitted";
+type SubmitError = string | null;
 
 type SharedClip = {
   id: string;
@@ -17,6 +18,7 @@ export default function ClipShareView() {
   const [clip, setClip] = useState<SharedClip | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [submitError, setSubmitError] = useState<SubmitError>(null);
 
   useEffect(() => {
     let cancelled = false;
@@ -31,7 +33,12 @@ export default function ClipShareView() {
         setLoading(true);
         setError(null);
         const res = await apiRequest(`/share/${token}`);
-        if (!res.ok) throw new Error("Share not found");
+        if (!res.ok) {
+          if (res.status === 404 || res.status === 410) {
+            throw new Error("Link expired");
+          }
+          throw new Error("Share not found");
+        }
         const data = await res.json();
         const nextClip: SharedClip = data.clip || data;
         if (!cancelled) setClip(nextClip);
@@ -49,15 +56,23 @@ export default function ClipShareView() {
 
   const handleSubmit = async () => {
     if (!response.trim()) return;
+    setSubmitError(null);
     try {
-      await apiRequest(`/share/${token}/response`, {
+      const res = await apiRequest(`/share/${token}/response`, {
         method: "POST",
         body: JSON.stringify({ response }),
       });
+      if (!res.ok) {
+        if (res.status === 404 || res.status === 410) {
+          setSubmitError("Link expired");
+        } else {
+          setSubmitError("Failed to send response");
+        }
+        return;
+      }
       setViewerState("submitted");
     } catch {
-      // keep UI stable; error UI is handled via loading state on initial fetch only
-      setViewerState("submitted");
+      setSubmitError("Failed to send response");
     }
   };
 
@@ -77,8 +92,15 @@ export default function ClipShareView() {
             Loading…
           </div>
         ) : error ? (
-          <div className="absolute inset-0 flex items-center justify-center" style={{ color: "#666", fontFamily: "'DM Sans', sans-serif" }}>
-            {error}
+          <div className="absolute inset-0 flex flex-col items-center justify-center gap-1" style={{ fontFamily: "'DM Sans', sans-serif" }}>
+            <span style={{ color: "#666", fontSize: "16px", fontWeight: 600 }}>
+              {error}
+            </span>
+            {error === "Link expired" && (
+              <span style={{ color: "#999", fontSize: "13px" }}>
+                This share link is no longer active.
+              </span>
+            )}
           </div>
         ) : clip?.videoUrl ? (
           <video src={clip.videoUrl} controls className="absolute inset-0 w-full h-full object-cover" />
@@ -140,6 +162,27 @@ export default function ClipShareView() {
                 minHeight: "100px",
               }}
             />
+
+            {/* Submit error */}
+            {submitError && (
+              <div
+                className="px-4 py-3 rounded-xl"
+                style={{
+                  backgroundColor: "#FEF2F2",
+                  border: "1px solid #FECACA",
+                }}
+              >
+                <p
+                  style={{
+                    fontFamily: "'DM Sans', sans-serif",
+                    fontSize: "14px",
+                    color: "#DC2626",
+                  }}
+                >
+                  {submitError}
+                </p>
+              </div>
+            )}
 
             {/* Submit */}
             <button

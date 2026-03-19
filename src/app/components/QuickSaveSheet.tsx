@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { Check, Mic, Video } from "lucide-react";
+import { Check, Mic, Video, AlertCircle } from "lucide-react";
 import { useNavigate } from "react-router";
 import { useSessions } from "../hooks/useSessions";
 import { useInbox } from "../hooks/useInbox";
@@ -14,6 +14,9 @@ export interface CaptureResult {
 interface QuickSaveSheetProps {
   capture: CaptureResult | null;
   onDismiss: () => void;
+  fromCaptureFirst?: boolean;
+  targetSessionId?: string;
+  targetSection?: string;
 }
 
 type SheetState =
@@ -27,7 +30,7 @@ function formatDuration(sec: number) {
   return `${m}:${s.toString().padStart(2, "0")}`;
 }
 
-export default function QuickSaveSheet({ capture, onDismiss }: QuickSaveSheetProps) {
+export default function QuickSaveSheet({ capture, onDismiss, fromCaptureFirst, targetSessionId, targetSection }: QuickSaveSheetProps) {
   const navigate = useNavigate();
   const { sessions, createSession } = useSessions();
   const { saveClip, assignClip } = useInbox();
@@ -35,6 +38,8 @@ export default function QuickSaveSheet({ capture, onDismiss }: QuickSaveSheetPro
   const [sessionName, setSessionName] = useState("");
   const [savedClipId, setSavedClipId] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
+  const [assignError, setAssignError] = useState<string | null>(null);
+  const [assigning, setAssigning] = useState(false);
 
   // Save to inbox immediately (if not yet saved)
   const ensureSaved = async (): Promise<string> => {
@@ -68,30 +73,60 @@ export default function QuickSaveSheet({ capture, onDismiss }: QuickSaveSheetPro
   const handleLater = async () => {
     await ensureSaved();
     onDismiss();
-    navigate("/inbox");
+    if (fromCaptureFirst) {
+      navigate("/inbox");
+    } else {
+      navigate(-1);
+    }
   };
 
   const handleNewSession = async () => {
-    const name = sessionName.trim();
-    const session = await createSession({
-      songName: name || "Untitled",
-      artist: "",
-      tempo: 120,
-      duration: 240,
-      sections: [],
-      mirrorEnabled: false,
-    });
-    const clipId = await ensureSaved();
-    await assignClip(clipId, session.id);
-    onDismiss();
-    navigate(`/session/${session.id}`);
+    setAssignError(null);
+    setAssigning(true);
+    try {
+      const name = sessionName.trim();
+      const session = await createSession({
+        songName: name || "Untitled",
+        artist: "",
+        tempo: 120,
+        duration: 240,
+        sections: [],
+        mirrorEnabled: false,
+      });
+      const clipId = await ensureSaved();
+      await assignClip(clipId, session.id);
+      onDismiss();
+      navigate(`/session/${session.id}`);
+    } catch (err) {
+      setAssignError(err instanceof Error ? err.message : "Failed to create session");
+      setAssigning(false);
+    }
   };
 
   const handleAssignToSession = async (sessionId: string) => {
-    const clipId = await ensureSaved();
-    await assignClip(clipId, sessionId);
-    onDismiss();
-    navigate(`/session/${sessionId}`);
+    setAssignError(null);
+    setAssigning(true);
+    try {
+      const clipId = await ensureSaved();
+      await assignClip(clipId, sessionId, targetSection);
+      onDismiss();
+      const toastParam = targetSection ? `?toast=Added+to+${encodeURIComponent(targetSection)}` : "";
+      navigate(`/session/${sessionId}${toastParam}`);
+    } catch (err) {
+      setAssignError(err instanceof Error ? err.message : "Failed to assign clip");
+      setAssigning(false);
+    }
+  };
+
+  const handleSaveToInboxFallback = async () => {
+    setAssignError(null);
+    try {
+      await ensureSaved();
+      onDismiss();
+      navigate("/inbox");
+    } catch (err) {
+      setAssignError(err instanceof Error ? err.message : "Failed to save");
+    }
   };
 
   if (!capture) return null;
@@ -164,6 +199,35 @@ export default function QuickSaveSheet({ capture, onDismiss }: QuickSaveSheetPro
               Add to session?
             </p>
 
+            {/* Error row for targeted save */}
+            {assignError && (
+              <div
+                className="mb-4 px-3 py-2 rounded-lg flex items-start gap-2"
+                style={{ backgroundColor: "rgba(255, 107, 53, 0.1)", border: "1px solid rgba(255, 107, 53, 0.3)" }}
+              >
+                <AlertCircle className="w-4 h-4 mt-0.5 flex-shrink-0" style={{ color: "var(--accent-warm)" }} />
+                <div className="flex-1">
+                  <p style={{ fontFamily: "var(--font-body)", fontSize: "13px", color: "var(--accent-warm)" }}>
+                    {assignError}
+                  </p>
+                  <div className="flex gap-2 mt-2">
+                    <button
+                      onClick={() => targetSessionId && handleAssignToSession(targetSessionId)}
+                      style={{ fontFamily: "var(--font-body)", fontSize: "12px", color: "var(--accent-primary)", fontWeight: 600 }}
+                    >
+                      Retry
+                    </button>
+                    <button
+                      onClick={handleSaveToInboxFallback}
+                      style={{ fontFamily: "var(--font-body)", fontSize: "12px", color: "var(--text-secondary)" }}
+                    >
+                      Save to Inbox instead
+                    </button>
+                  </div>
+                </div>
+              </div>
+            )}
+
             {/* Action row */}
             <div className="flex gap-2">
               {/* Later */}
@@ -180,36 +244,57 @@ export default function QuickSaveSheet({ capture, onDismiss }: QuickSaveSheetPro
                 Later
               </button>
 
-              {/* + New session */}
-              <button
-                onClick={() => setState("new-session")}
-                className="flex-1 h-12 rounded-xl flex items-center justify-center transition-opacity hover:opacity-80"
-                style={{
-                  backgroundColor: "var(--surface-overlay)",
-                  border: "1px solid var(--border-subtle)",
-                  fontFamily: "var(--font-body)",
-                  fontSize: "14px",
-                  color: "var(--text-primary)",
-                }}
-              >
-                + New session
-              </button>
-
-              {/* Existing → */}
-              {sessions.length > 0 && (
+              {/* If launched from Workbench with target, show "Save to [section]" as primary */}
+              {targetSessionId && targetSection ? (
                 <button
-                  onClick={() => setState("picker")}
-                  className="flex-1 h-12 rounded-xl flex items-center justify-center transition-opacity hover:opacity-80"
+                  onClick={() => handleAssignToSession(targetSessionId)}
+                  disabled={assigning}
+                  className="flex-[2] h-12 rounded-xl flex items-center justify-center transition-opacity hover:opacity-80"
                   style={{
                     backgroundColor: "var(--accent-primary)",
                     fontFamily: "var(--font-body)",
                     fontSize: "14px",
                     fontWeight: 600,
                     color: "var(--surface-base)",
+                    opacity: assigning ? 0.6 : 1,
                   }}
                 >
-                  Existing →
+                  {assigning ? "Saving…" : `Save to ${targetSection}`}
                 </button>
+              ) : (
+                <>
+                  {/* + New session */}
+                  <button
+                    onClick={() => setState("new-session")}
+                    className="flex-1 h-12 rounded-xl flex items-center justify-center transition-opacity hover:opacity-80"
+                    style={{
+                      backgroundColor: "var(--surface-overlay)",
+                      border: "1px solid var(--border-subtle)",
+                      fontFamily: "var(--font-body)",
+                      fontSize: "14px",
+                      color: "var(--text-primary)",
+                    }}
+                  >
+                    + New session
+                  </button>
+
+                  {/* Existing → */}
+                  {sessions.length > 0 && (
+                    <button
+                      onClick={() => setState("picker")}
+                      className="flex-1 h-12 rounded-xl flex items-center justify-center transition-opacity hover:opacity-80"
+                      style={{
+                        backgroundColor: "var(--accent-primary)",
+                        fontFamily: "var(--font-body)",
+                        fontSize: "14px",
+                        fontWeight: 600,
+                        color: "var(--surface-base)",
+                      }}
+                    >
+                      Existing →
+                    </button>
+                  )}
+                </>
               )}
             </div>
           </div>
@@ -249,6 +334,35 @@ export default function QuickSaveSheet({ capture, onDismiss }: QuickSaveSheetPro
                 color: "var(--text-primary)",
               }}
             />
+
+            {/* Error row for new session */}
+            {assignError && (
+              <div
+                className="mb-4 px-3 py-2 rounded-lg flex items-start gap-2"
+                style={{ backgroundColor: "rgba(255, 107, 53, 0.1)", border: "1px solid rgba(255, 107, 53, 0.3)" }}
+              >
+                <AlertCircle className="w-4 h-4 mt-0.5 flex-shrink-0" style={{ color: "var(--accent-warm)" }} />
+                <div className="flex-1">
+                  <p style={{ fontFamily: "var(--font-body)", fontSize: "13px", color: "var(--accent-warm)" }}>
+                    {assignError}
+                  </p>
+                  <div className="flex gap-2 mt-2">
+                    <button
+                      onClick={handleNewSession}
+                      style={{ fontFamily: "var(--font-body)", fontSize: "12px", color: "var(--accent-primary)", fontWeight: 600 }}
+                    >
+                      Retry
+                    </button>
+                    <button
+                      onClick={handleSaveToInboxFallback}
+                      style={{ fontFamily: "var(--font-body)", fontSize: "12px", color: "var(--text-secondary)" }}
+                    >
+                      Save to Inbox instead
+                    </button>
+                  </div>
+                </div>
+              </div>
+            )}
 
             <div className="flex gap-3">
               <button
@@ -293,7 +407,36 @@ export default function QuickSaveSheet({ capture, onDismiss }: QuickSaveSheetPro
               </button>
             </div>
 
-            <div className="overflow-auto flex-1 pb-6">
+            {/* Error row for picker assign */}
+            {assignError && (
+              <div
+                className="mx-6 mb-3 px-3 py-2 rounded-lg flex items-start gap-2"
+                style={{ backgroundColor: "rgba(255, 107, 53, 0.1)", border: "1px solid rgba(255, 107, 53, 0.3)" }}
+              >
+                <AlertCircle className="w-4 h-4 mt-0.5 flex-shrink-0" style={{ color: "var(--accent-warm)" }} />
+                <div className="flex-1">
+                  <p style={{ fontFamily: "var(--font-body)", fontSize: "13px", color: "var(--accent-warm)" }}>
+                    {assignError}
+                  </p>
+                  <div className="flex gap-2 mt-2">
+                    <button
+                      onClick={() => setAssignError(null)}
+                      style={{ fontFamily: "var(--font-body)", fontSize: "12px", color: "var(--accent-primary)", fontWeight: 600 }}
+                    >
+                      Try another
+                    </button>
+                    <button
+                      onClick={handleSaveToInboxFallback}
+                      style={{ fontFamily: "var(--font-body)", fontSize: "12px", color: "var(--text-secondary)" }}
+                    >
+                      Save to Inbox instead
+                    </button>
+                  </div>
+                </div>
+              </div>
+            )}
+
+            <div className="overflow-auto flex-1 pb-6" style={{ opacity: assigning ? 0.5 : 1, pointerEvents: assigning ? "none" : "auto" }}>
               {sessions.map((session) => (
                 <button
                   key={session.id}

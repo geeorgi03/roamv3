@@ -12,10 +12,6 @@ export default function RepetitionTool() {
   const [isPlaying, setIsPlaying] = useState(false);
 
   const repeatOptions = ["2×", "4×", "8×", "∞"];
-  const drillSequence = [
-    { name: "chorus drill", color: "var(--track-1)", count: "∞" },
-    { name: "bridge entry", color: "var(--track-2)", count: "4×" },
-  ];
 
   const formatTime = (seconds: number) => {
     const mins = Math.floor(seconds / 60);
@@ -313,86 +309,6 @@ export default function RepetitionTool() {
         </div>
       </div>
 
-      {/* Drill Sequence Panel */}
-      <div 
-        className="px-4 py-3"
-        style={{ 
-          backgroundColor: 'var(--surface-raised)',
-          borderBottom: '1px solid var(--border-subtle)'
-        }}
-      >
-        <div className="flex items-center justify-between mb-3">
-          <span 
-            style={{ 
-              fontFamily: 'var(--font-app-title)', 
-              fontWeight: 600,
-              fontSize: '13px',
-              color: 'var(--text-primary)'
-            }}
-          >
-            Drill Sequence
-          </span>
-        </div>
-
-        <div className="space-y-2 mb-3">
-          {drillSequence.map((item, index) => (
-            <div 
-              key={index}
-              className="h-10 flex items-center gap-3 px-2"
-            >
-              <div className="w-1 h-1 rounded-full" style={{ backgroundColor: item.color }} />
-              <div 
-                className="w-2 h-2 rounded-full"
-                style={{ backgroundColor: item.color }}
-              />
-              <span 
-                className="flex-1"
-                style={{ 
-                  fontSize: '13px',
-                  color: 'var(--text-primary)',
-                  fontFamily: 'var(--font-body)'
-                }}
-              >
-                {item.name}
-              </span>
-              <span 
-                style={{ 
-                  fontSize: '11px',
-                  color: 'var(--text-secondary)',
-                  fontFamily: 'var(--font-body)'
-                }}
-              >
-                {item.count}
-              </span>
-            </div>
-          ))}
-        </div>
-
-        <button 
-          className="w-full text-center py-2"
-          style={{ 
-            fontSize: '13px',
-            fontWeight: 600,
-            color: 'var(--accent-cool)',
-            fontFamily: 'var(--font-body)'
-          }}
-        >
-          + Add region
-        </button>
-
-        <button 
-          className="w-full h-12 rounded-lg mt-3"
-          style={{
-            backgroundColor: 'var(--accent-primary)',
-            color: 'var(--surface-base)',
-            fontSize: '14px',
-            fontWeight: 600,
-            fontFamily: 'var(--font-body)'
-          }}
-        >
-          Run Sequence
-        </button>
-      </div>
 
       {/* Region List */}
       <div className="flex-1 overflow-auto">
