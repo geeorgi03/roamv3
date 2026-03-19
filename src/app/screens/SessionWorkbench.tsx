@@ -74,6 +74,9 @@ export default function SessionWorkbench() {
   const [voiceMemoCurrentTime, setVoiceMemoCurrentTime] = useState(0);
   const [voiceMemoDuration, setVoiceMemoDuration] = useState(0);
 
+  // Focused text note state (for expanding inline from timeline dot tap)
+  const [focusedTextNoteId, setFocusedTextNoteId] = useState<string | null>(null);
+
   // Loop inline popover
   const [loopPopover, setLoopPopover] = useState<{
     loopId: string;
@@ -592,6 +595,8 @@ export default function SessionWorkbench() {
                         setActiveTab("Notes");
                         handleVoiceNotePlay(note.id, note.audioUrl!);
                       } else {
+                        setActiveTab("Notes");
+                        setFocusedTextNoteId(note.id);
                         if (audioRef.current) {
                           audioRef.current.currentTime = note.timecode;
                         }
@@ -602,7 +607,7 @@ export default function SessionWorkbench() {
                       left: `${pct}%`,
                       backgroundColor: colors[i % colors.length],
                     }}
-                    aria-label={isVoiceNote ? "Play voice note" : "Jump to note"}
+                    aria-label={isVoiceNote ? "Play voice note" : "Open note"}
                   />
                 );
               })
@@ -1439,12 +1444,24 @@ export default function SessionWorkbench() {
                 ) : (
                   sortedNotes.map((n) => {
                     const isVoicePlaying = playingNoteId === n.id;
+                    const isTextNote = !n.audioUrl;
+                    const isFocusedTextNote = isTextNote && focusedTextNoteId === n.id;
                     return (
                       <div
                         key={n.id}
-                        className="px-3 py-2 rounded-lg cursor-pointer transition-opacity hover:opacity-90"
-                        style={{ backgroundColor: "var(--surface-raised)", border: "1px solid var(--border-subtle)" }}
+                        className="px-3 py-2 rounded-lg cursor-pointer transition-all"
+                        style={{
+                          backgroundColor: isFocusedTextNote
+                            ? "color-mix(in srgb, var(--accent-primary) 12%, var(--surface-raised))"
+                            : "var(--surface-raised)",
+                          border: isFocusedTextNote
+                            ? "1.5px solid var(--accent-primary)"
+                            : "1px solid var(--border-subtle)",
+                        }}
                         onClick={() => {
+                          if (isTextNote) {
+                            setFocusedTextNoteId(isFocusedTextNote ? null : n.id);
+                          }
                           const el = audioRef.current;
                           if (el) el.currentTime = n.timecode;
                         }}
@@ -1501,12 +1518,85 @@ export default function SessionWorkbench() {
                               </span>
                             </button>
                           )}
+
+                          {/* Focused text note indicator */}
+                          {isFocusedTextNote && (
+                            <button
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                setFocusedTextNoteId(null);
+                              }}
+                              className="px-2 py-0.5 rounded-full"
+                              style={{
+                                backgroundColor: "var(--accent-primary)",
+                                fontFamily: "var(--font-body)",
+                                fontSize: "10px",
+                                color: "var(--surface-base)",
+                              }}
+                            >
+                              Close
+                            </button>
+                          )}
                         </div>
 
-                        {/* Note text */}
+                        {/* Note text - always show for non-focused, expanded for focused */}
                         {n.text && (
-                          <div className="mt-1" style={{ fontFamily: "var(--font-body)", fontSize: "13px", color: "var(--text-primary)" }}>
+                          <div
+                            className="mt-1"
+                            style={{
+                              fontFamily: "var(--font-body)",
+                              fontSize: "13px",
+                              color: "var(--text-primary)",
+                            }}
+                          >
                             {n.text}
+                          </div>
+                        )}
+
+                        {/* Expanded content region for focused text note */}
+                        {isFocusedTextNote && (
+                          <div
+                            className="mt-3 pt-3"
+                            style={{
+                              borderTop: "1px solid var(--border-subtle)",
+                            }}
+                          >
+                            <div className="flex items-center gap-2 mb-2">
+                              <span
+                                style={{
+                                  fontFamily: "var(--font-body)",
+                                  fontSize: "11px",
+                                  color: "var(--text-disabled)",
+                                }}
+                              >
+                                Pinned at
+                              </span>
+                              <span
+                                className="px-2 py-0.5 rounded"
+                                style={{
+                                  backgroundColor: "var(--surface-overlay)",
+                                  fontFamily: "var(--font-mono)",
+                                  fontSize: "11px",
+                                  color: "var(--accent-primary)",
+                                }}
+                              >
+                                {formatTime(n.timecode)}
+                              </span>
+                            </div>
+                            {n.text && (
+                              <div
+                                className="p-2 rounded-lg"
+                                style={{
+                                  backgroundColor: "var(--surface-overlay)",
+                                  fontFamily: "var(--font-body)",
+                                  fontSize: "14px",
+                                  color: "var(--text-primary)",
+                                  lineHeight: "1.5",
+                                }}
+                              >
+                                {n.text}
+                              </div>
+                            )}
                           </div>
                         )}
 
