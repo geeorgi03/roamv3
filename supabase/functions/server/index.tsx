@@ -576,6 +576,204 @@ app.delete("/make-server-837ff822/sessions/:sessionId/marks/:markId", async (c) 
   }
 });
 
+// ==================== SHARE ROUTES ====================
+
+// Helper to generate share tokens
+function generateShareToken(): string {
+  const chars = 'ABCDEFGHJKLMNPQRSTUVWXYZabcdefghjkmnpqrstuvwxyz23456789';
+  let token = '';
+  for (let i = 0; i < 12; i++) {
+    token += chars.charAt(Math.floor(Math.random() * chars.length));
+  }
+  return token;
+}
+
+// POST /sessions/:sessionId/share — generate session share link
+app.post("/make-server-837ff822/sessions/:sessionId/share", async (c) => {
+  try {
+    const userId = await getAuthenticatedUserId(c.req.raw);
+    if (!userId) {
+      return c.json({ error: 'Unauthorized' }, 401);
+    }
+    
+    const sessionId = c.req.param('sessionId');
+    const session = await kv.get(`session:${userId}:${sessionId}`);
+    
+    if (!session) {
+      return c.json({ error: 'Session not found' }, 404);
+    }
+    
+    // Check for existing share token
+    const existingShare = await kv.get(`share:session:${sessionId}`);
+    if (existingShare?.token) {
+      const baseUrl = Deno.env.get('PUBLIC_SITE_URL') || 'https://app.example.com';
+      return c.json({ token: existingShare.token, url: `${baseUrl}/share/${existingShare.token}` });
+    }
+    
+    // Generate new share token
+    const token = generateShareToken();
+    const shareData = {
+      token,
+      sessionId,
+      userId,
+      type: 'session',
+      createdAt: new Date().toISOString(),
+    };
+    
+    await kv.set(`share:session:${sessionId}`, shareData);
+    await kv.set(`share:token:${token}`, shareData);
+    
+    const baseUrl = Deno.env.get('PUBLIC_SITE_URL') || 'https://app.example.com';
+    return c.json({ token, url: `${baseUrl}/share/${token}` });
+  } catch (error) {
+    console.log(`Error generating session share: ${error}`);
+    return c.json({ error: 'Failed to generate share link' }, 500);
+  }
+});
+
+// DELETE /sessions/:sessionId/share — revoke session share link
+app.delete("/make-server-837ff822/sessions/:sessionId/share", async (c) => {
+  try {
+    const userId = await getAuthenticatedUserId(c.req.raw);
+    if (!userId) {
+      return c.json({ error: 'Unauthorized' }, 401);
+    }
+    
+    const sessionId = c.req.param('sessionId');
+    const session = await kv.get(`session:${userId}:${sessionId}`);
+    
+    if (!session) {
+      return c.json({ error: 'Session not found' }, 404);
+    }
+    
+    const existingShare = await kv.get(`share:session:${sessionId}`);
+    if (existingShare?.token) {
+      await kv.del(`share:token:${existingShare.token}`);
+    }
+    await kv.del(`share:session:${sessionId}`);
+    
+    return c.json({ success: true });
+  } catch (error) {
+    console.log(`Error revoking session share: ${error}`);
+    return c.json({ error: 'Failed to revoke share link' }, 500);
+  }
+});
+
+// POST /sessions/:sessionId/clips/:clipId/share — generate clip share link
+app.post("/make-server-837ff822/sessions/:sessionId/clips/:clipId/share", async (c) => {
+  try {
+    const userId = await getAuthenticatedUserId(c.req.raw);
+    if (!userId) {
+      return c.json({ error: 'Unauthorized' }, 401);
+    }
+    
+    const sessionId = c.req.param('sessionId');
+    const clipId = c.req.param('clipId');
+    
+    const session = await kv.get(`session:${userId}:${sessionId}`);
+    if (!session) {
+      return c.json({ error: 'Session not found' }, 404);
+    }
+    
+    const clip = await kv.get(`clip:${userId}:${sessionId}:${clipId}`);
+    if (!clip) {
+      return c.json({ error: 'Clip not found' }, 404);
+    }
+    
+    // Check for existing share token
+    const existingShare = await kv.get(`share:clip:${clipId}`);
+    if (existingShare?.token) {
+      const baseUrl = Deno.env.get('PUBLIC_SITE_URL') || 'https://app.example.com';
+      return c.json({ token: existingShare.token, url: `${baseUrl}/share/${existingShare.token}` });
+    }
+    
+    // Generate new share token
+    const token = generateShareToken();
+    const shareData = {
+      token,
+      clipId,
+      sessionId,
+      userId,
+      type: 'clip',
+      createdAt: new Date().toISOString(),
+    };
+    
+    await kv.set(`share:clip:${clipId}`, shareData);
+    await kv.set(`share:token:${token}`, shareData);
+    
+    const baseUrl = Deno.env.get('PUBLIC_SITE_URL') || 'https://app.example.com';
+    return c.json({ token, url: `${baseUrl}/share/${token}` });
+  } catch (error) {
+    console.log(`Error generating clip share: ${error}`);
+    return c.json({ error: 'Failed to generate share link' }, 500);
+  }
+});
+
+// DELETE /sessions/:sessionId/clips/:clipId/share — revoke clip share link
+app.delete("/make-server-837ff822/sessions/:sessionId/clips/:clipId/share", async (c) => {
+  try {
+    const userId = await getAuthenticatedUserId(c.req.raw);
+    if (!userId) {
+      return c.json({ error: 'Unauthorized' }, 401);
+    }
+    
+    const sessionId = c.req.param('sessionId');
+    const clipId = c.req.param('clipId');
+    
+    const session = await kv.get(`session:${userId}:${sessionId}`);
+    if (!session) {
+      return c.json({ error: 'Session not found' }, 404);
+    }
+    
+    const clip = await kv.get(`clip:${userId}:${sessionId}:${clipId}`);
+    if (!clip) {
+      return c.json({ error: 'Clip not found' }, 404);
+    }
+    
+    const existingShare = await kv.get(`share:clip:${clipId}`);
+    if (existingShare?.token) {
+      await kv.del(`share:token:${existingShare.token}`);
+    }
+    await kv.del(`share:clip:${clipId}`);
+    
+    return c.json({ success: true });
+  } catch (error) {
+    console.log(`Error revoking clip share: ${error}`);
+    return c.json({ error: 'Failed to revoke share link' }, 500);
+  }
+});
+
+// GET /share/:token — resolve share token (public, no auth required)
+app.get("/make-server-837ff822/share/:token", async (c) => {
+  try {
+    const token = c.req.param('token');
+    const shareData = await kv.get(`share:token:${token}`);
+    
+    if (!shareData) {
+      return c.json({ error: 'Share link not found or expired' }, 404);
+    }
+    
+    if (shareData.type === 'session') {
+      const session = await kv.get(`session:${shareData.userId}:${shareData.sessionId}`);
+      if (!session) {
+        return c.json({ error: 'Session no longer exists' }, 404);
+      }
+      return c.json({ type: 'session', session });
+    } else if (shareData.type === 'clip') {
+      const clip = await kv.get(`clip:${shareData.userId}:${shareData.sessionId}:${shareData.clipId}`);
+      if (!clip) {
+        return c.json({ error: 'Clip no longer exists' }, 404);
+      }
+      return c.json({ type: 'clip', clip, sessionId: shareData.sessionId });
+    }
+    
+    return c.json({ error: 'Invalid share type' }, 400);
+  } catch (error) {
+    console.log(`Error resolving share token: ${error}`);
+    return c.json({ error: 'Failed to resolve share link' }, 500);
+  }
+});
+
 // ==================== STORAGE ROUTES ====================
 
 // Initialize storage bucket on server startup

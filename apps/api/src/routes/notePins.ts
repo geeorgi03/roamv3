@@ -42,7 +42,15 @@ app.get('/:id/notes', async (c) => {
   return c.json({ notes: (data ?? []) as NotePin[] });
 });
 
-/** POST /sessions/:id/notes — create a note pin */
+/**
+ * POST /sessions/:id/notes — create a note pin
+ *
+ * Response shape (canonical):
+ *   201 Created — { note: NotePin }
+ *
+ * Consumers should parse `{ note }` wrapper; legacy raw-object fallback
+ * is tolerated client-side but new code must use the canonical shape.
+ */
 app.post('/:id/notes', async (c) => {
   const userId = c.get('userId');
   const sessionId = c.req.param('id');
@@ -85,7 +93,7 @@ app.post('/:id/notes', async (c) => {
     .single();
 
   if (error) return c.json({ error: error.message }, 500);
-  return c.json(data as NotePin, 201);
+  return c.json({ note: data as NotePin }, 201);
 });
 
 /** DELETE /sessions/:id/notes/:noteId — delete a note pin */

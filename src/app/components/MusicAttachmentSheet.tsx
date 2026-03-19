@@ -42,7 +42,7 @@ export default function MusicAttachmentSheet({
 
     setState({ type: "loading", url: value });
     try {
-      const res = await apiRequest(`/music-extract`, {
+      const res = await apiRequest(`/music-import`, {
         method: "POST",
         body: JSON.stringify({ url: value }),
       });

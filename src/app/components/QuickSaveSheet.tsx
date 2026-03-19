@@ -3,6 +3,7 @@ import { Check, Mic, Video } from "lucide-react";
 import { useNavigate } from "react-router";
 import { useSessions } from "../hooks/useSessions";
 import { useInbox } from "../hooks/useInbox";
+import { uploadFile } from "../../utils/supabase";
 
 export interface CaptureResult {
   mediaType: "video" | "audio";
@@ -40,10 +41,22 @@ export default function QuickSaveSheet({ capture, onDismiss }: QuickSaveSheetPro
     if (savedClipId) return savedClipId;
     setSaving(true);
     try {
+      let videoUrl: string | undefined;
+      let audioUrl: string | undefined;
+      if (capture?.blob) {
+        const uploaded = await uploadFile(capture.blob, capture.mediaType === "audio" ? "audio" : "video");
+        if (capture.mediaType === "audio") {
+          audioUrl = uploaded.url;
+        } else {
+          videoUrl = uploaded.url;
+        }
+      }
       const clip = await saveClip({
         mediaType: capture?.mediaType || "video",
         duration: capture?.duration,
         createdAt: new Date().toISOString(),
+        videoUrl,
+        audioUrl,
       });
       setSavedClipId(clip.id);
       return clip.id;

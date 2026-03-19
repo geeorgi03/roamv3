@@ -79,7 +79,12 @@ export function useNotePins(sessionId: string | null) {
         const body = await res.json().catch(() => ({}));
         throw new Error((body as { error?: string }).error ?? 'Failed to create note');
       }
-      const note = (await res.json()) as NotePin;
+      const body = await res.json();
+      // Handle both canonical { note } wrapper and legacy raw object shapes
+      const note: NotePin = (body as { note?: NotePin }).note ?? (body as NotePin);
+      if (!note.id || typeof note.timecode_ms !== 'number') {
+        throw new Error('Invalid note response shape');
+      }
       setNotes((prev) => [...prev, note]);
       return note;
     } catch (e) {

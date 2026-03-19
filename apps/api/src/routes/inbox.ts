@@ -66,6 +66,12 @@ app.post('/', async (c) => {
     difficulty?: string | null;
     bpm?: number | null;
     notes?: string | null;
+    // Media storage paths (from QuickSaveSheet uploads)
+    video_storage_path?: string | null;
+    audio_storage_path?: string | null;
+    thumbnail_storage_path?: string | null;
+    duration_ms?: number | null;
+    media_type?: 'video' | 'audio' | null;
   }>();
 
   if (!body?.local_id || typeof body.recorded_at !== 'string') {
@@ -89,6 +95,12 @@ app.post('/', async (c) => {
     difficulty: body.difficulty ?? null,
     bpm: body.bpm ?? null,
     notes: body.notes ?? null,
+    // Media storage fields from QuickSaveSheet uploads
+    video_storage_path: body.video_storage_path ?? null,
+    audio_storage_path: body.audio_storage_path ?? null,
+    thumbnail_storage_path: body.thumbnail_storage_path ?? null,
+    duration_ms: body.duration_ms ?? null,
+    media_type: body.media_type ?? null,
   };
 
   const { data, error } = await supabase
@@ -98,7 +110,7 @@ app.post('/', async (c) => {
     .single();
 
   if (error) return c.json({ error: error.message }, 500);
-  return c.json(data as Clip, 201);
+  return c.json({ clip: data as Clip }, 201);
 });
 
 /** PATCH /inbox/:id/assign — assign an inbox clip to a session, optionally to a section */

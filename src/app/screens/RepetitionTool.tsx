@@ -89,10 +89,16 @@ export default function RepetitionTool() {
               color: 'var(--text-primary)'
             }}
           >
-            Chorus — Repetition
+            {loop?.name ? `${loop.name} — Repetition` : "Repetition"}
           </span>
         </button>
         <button 
+          onClick={async () => {
+            if (regionId) {
+              await updateLoop(regionId, { repeatCount });
+            }
+            navigate(-1);
+          }}
           style={{ 
             fontSize: '13px',
             fontWeight: 600,
@@ -289,12 +295,7 @@ export default function RepetitionTool() {
             {repeatOptions.map((option) => (
               <button
                 key={option}
-                onClick={async () => {
-                  setRepeatCount(option);
-                  if (regionId) {
-                    await updateLoop(regionId, { repeatCount: option });
-                  }
-                }}
+                onClick={() => setRepeatCount(option)}
                 className="px-3 py-1 rounded-full"
                 style={{
                   backgroundColor: repeatCount === option ? 'var(--accent-primary)' : 'var(--surface-overlay)',

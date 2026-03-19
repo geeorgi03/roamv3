@@ -13,7 +13,7 @@ import MusicAttachmentSheet from "../components/MusicAttachmentSheet";
 export default function Home() {
   const navigate = useNavigate();
   const { user, signOut } = useAuth();
-  const { sessions, createSession, loading } = useSessions();
+  const { sessions, createSession, loading, error, refreshSessions } = useSessions();
   const { clips: inboxClips } = useInbox();
   const inboxCount = inboxClips.length;
   const [showNewSessionDialog, setShowNewSessionDialog] = useState(false);
@@ -264,6 +264,19 @@ export default function Home() {
               {loading && (
                 <div className="px-5 py-6" style={{ fontFamily: "var(--font-body)", fontSize: "13px", color: "var(--text-disabled)" }}>
                   Loading sessions…
+                </div>
+              )}
+              {error && (
+                <div className="px-5 py-4 flex items-center justify-between">
+                  <span style={{ fontFamily: "var(--font-body)", fontSize: "13px", color: "var(--accent-warm)" }}>
+                    {error}
+                  </span>
+                  <button
+                    onClick={() => refreshSessions()}
+                    style={{ fontFamily: "var(--font-body)", fontSize: "13px", color: "var(--accent-primary)" }}
+                  >
+                    Retry
+                  </button>
                 </div>
               )}
             </div>

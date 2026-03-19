@@ -30,11 +30,17 @@ export default function ShareSheet({ isOpen, onClose, clipId, sessionId, clipLab
   }, [isOpen]);
 
   const handleGenerateLink = async () => {
-    if (!clipId || !sessionId) return;
+    if (!sessionId) {
+      setGenError("Session context required to generate share link");
+      return;
+    }
     setGenerating(true);
     setGenError(null);
     try {
-      const res = await apiRequest(`/sessions/${sessionId}/clips/${clipId}/share`, { method: "POST" });
+      const endpoint = clipId
+        ? `/sessions/${sessionId}/clips/${clipId}/share`
+        : `/sessions/${sessionId}/share`;
+      const res = await apiRequest(endpoint, { method: "POST" });
       if (!res.ok) {
         const body = await res.json().catch(() => ({}));
         throw new Error(body.error || `Failed to generate link (${res.status})`);
@@ -47,6 +53,28 @@ export default function ShareSheet({ isOpen, onClose, clipId, sessionId, clipLab
       setLinkUrl(url);
     } catch (err) {
       setGenError(err instanceof Error ? err.message : "Failed to generate link");
+    } finally {
+      setGenerating(false);
+    }
+  };
+
+  const handleRevokeLink = async () => {
+    if (!clipId && !sessionId) return;
+    setGenerating(true);
+    setGenError(null);
+    try {
+      // Use clip-level revocation if clipId provided, otherwise session-level
+      const endpoint = clipId
+        ? `/sessions/${sessionId}/clips/${clipId}/share`
+        : `/sessions/${sessionId}/share`;
+      const res = await apiRequest(endpoint, { method: "DELETE" });
+      if (!res.ok) {
+        const body = await res.json().catch(() => ({}));
+        throw new Error(body.error || `Failed to revoke link (${res.status})`);
+      }
+      setLinkUrl(null);
+    } catch (err) {
+      setGenError(err instanceof Error ? err.message : "Failed to revoke link");
     } finally {
       setGenerating(false);
     }
@@ -68,7 +96,7 @@ export default function ShareSheet({ isOpen, onClose, clipId, sessionId, clipLab
     onClose();
   };
 
-  const canGenerateLink = Boolean(clipId && sessionId);
+  const canGenerateLink = Boolean(sessionId);
 
   if (!isOpen) return null;
 
@@ -197,6 +225,23 @@ export default function ShareSheet({ isOpen, onClose, clipId, sessionId, clipLab
               </button>
             </div>
 
+            {/* Revoke */}
+            <button
+              onClick={handleRevokeLink}
+              disabled={generating}
+              className="w-full h-10 rounded-xl flex items-center justify-center gap-2 transition-opacity hover:opacity-80"
+              style={{
+                backgroundColor: "transparent",
+                border: "1px solid var(--border-subtle)",
+                fontFamily: "var(--font-body)",
+                fontSize: "13px",
+                color: "var(--text-secondary)",
+                opacity: generating ? 0.5 : 1,
+              }}
+            >
+              {generating ? "Revoking…" : "Revoke link"}
+            </button>
+
           </div>
         ) : (
           <button
@@ -211,7 +256,7 @@ export default function ShareSheet({ isOpen, onClose, clipId, sessionId, clipLab
               color: generating || !canGenerateLink ? "var(--text-disabled)" : "var(--surface-base)",
             }}
           >
-            {generating ? "Generating…" : canGenerateLink ? "Generate link" : "Select a clip to share"}
+            {generating ? "Generating…" : canGenerateLink ? "Generate link" : "Session context required"}
           </button>
         )}
       </div>

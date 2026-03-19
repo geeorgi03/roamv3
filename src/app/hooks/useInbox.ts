@@ -42,23 +42,61 @@ export function useInbox() {
   }, [load]);
 
   const saveClip = async (clipData: Omit<InboxClip, "id" | "userId" | "sessionId">) => {
+    const payload: Record<string, unknown> = {
+      local_id: crypto.randomUUID(),
+      recorded_at: clipData.createdAt,
+      label: clipData.mediaType === "audio" ? "Voice memo" : "Video clip",
+      media_type: clipData.mediaType,
+    };
+    if (clipData.videoUrl) {
+      payload.video_storage_path = clipData.videoUrl;
+    }
+    if (clipData.audioUrl) {
+      payload.audio_storage_path = clipData.audioUrl;
+    }
+    if (clipData.duration !== undefined) {
+      payload.duration_ms = Math.round(clipData.duration * 1000);
+    }
+    if (clipData.thumbnailUrl) {
+      payload.thumbnail_storage_path = clipData.thumbnailUrl;
+    }
     const res = await apiRequest("/inbox", {
       method: "POST",
-      body: JSON.stringify(clipData),
+      body: JSON.stringify(payload),
     });
     if (!res.ok) {
       const body = await res.json().catch(() => ({}));
       throw new Error(`Save failed (${res.status}): ${body.error || res.statusText}`);
     }
     const data = await res.json();
-    setClips((prev) => [data.clip, ...prev]);
-    return data.clip as InboxClip;
+    const clip = data.clip;
+    const mappedClip: InboxClip = {
+      id: clip.id,
+      userId: clip.user_id,
+      sessionId: clip.session_id,
+      mediaType: clip.label === "Voice memo" ? "audio" : "video",
+      videoUrl: clip.video_storage_path,
+      audioUrl: clip.audio_storage_path,
+      duration: clip.duration_ms ? clip.duration_ms / 1000 : undefined,
+      thumbnailUrl: clip.thumbnail_storage_path,
+      createdAt: clip.recorded_at || clip.created_at,
+    };
+    setClips((prev) => [mappedClip, ...prev]);
+    return mappedClip;
   };
 
-  const assignClip = async (clipId: string, sessionId: string) => {
+  const assignClip = async (clipId: string, sessionId: string, sectionLabel?: string) => {
+    const payload: { sessionId: string; session_id?: string; sectionLabel?: string; section_label?: string } = {
+      sessionId,
+      session_id: sessionId,
+    };
+    if (sectionLabel) {
+      payload.sectionLabel = sectionLabel;
+      payload.section_label = sectionLabel;
+    }
     const res = await apiRequest(`/inbox/${clipId}/assign`, {
       method: "PATCH",
-      body: JSON.stringify({ sessionId }),
+      body: JSON.stringify(payload),
     });
     if (!res.ok) {
       const body = await res.json().catch(() => ({}));

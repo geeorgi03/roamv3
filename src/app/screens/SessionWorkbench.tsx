@@ -137,6 +137,7 @@ export default function SessionWorkbench() {
           musicUrl: url,
           duration: data.metadata?.duration || session?.duration || 240,
         });
+        audioRef.current?.load();
       } else if (data?.type === "url") {
         const res = await apiRequest(`/music-import`, {
           method: "POST",
@@ -150,6 +151,7 @@ export default function SessionWorkbench() {
           musicUrl: imported?.musicUrl || imported?.url || session?.musicUrl,
           duration: imported?.duration || data.metadata?.duration || session?.duration || 240,
         });
+        audioRef.current?.load();
       }
     } catch (error) {
       console.error("Failed to attach music:", error);
@@ -233,12 +235,7 @@ export default function SessionWorkbench() {
     { id: "Share", icon: Upload, label: "Share" },
   ];
 
-  const sections = session.sections.length > 0 ? session.sections : [
-    { name: "Intro", start: 0, end: 15 },
-    { name: "Verse 1", start: 15, end: 42 },
-    { name: "Chorus", start: 42, end: 70 },
-    { name: "Verse 2", start: 70, end: 100 },
-  ];
+  const sections = session.sections;
 
   const formatTime = (seconds: number) => {
     const mins = Math.floor(seconds / 60);
@@ -851,7 +848,27 @@ export default function SessionWorkbench() {
       </div>
 
       {/* Section Workspace */}
-      <div className="flex-1 p-4">
+      <div
+        className="flex-1 p-4"
+        onPointerDown={(e) => {
+          (e.currentTarget as any)._swipeStart = { x: e.clientX, y: e.clientY };
+        }}
+        onPointerUp={(e) => {
+          const start = (e.currentTarget as any)._swipeStart;
+          if (!start) return;
+          const deltaX = e.clientX - start.x;
+          const deltaY = e.clientY - start.y;
+          (e.currentTarget as any)._swipeStart = null;
+          if (Math.abs(deltaX) > 40 && Math.abs(deltaX) > Math.abs(deltaY)) {
+            const idx = sections.findIndex((s) => s.name === activeSection);
+            if (deltaX < 0 && idx < sections.length - 1) {
+              setActiveSection(sections[idx + 1].name);
+            } else if (deltaX > 0 && idx > 0) {
+              setActiveSection(sections[idx - 1].name);
+            }
+          }
+        }}
+      >
         <div className="flex items-center justify-between mb-4">
           <div>
             <span 
@@ -1088,6 +1105,38 @@ export default function SessionWorkbench() {
               </div>
             </div>
           )}
+
+          {activeTab === "Share" && (
+            <div>
+              <div style={{ fontFamily: "var(--font-app-title)", fontWeight: 600, fontSize: "13px", color: "var(--text-primary)" }}>
+                Share Session
+              </div>
+              <div className="mt-4">
+                <button
+                  onClick={() => setShareOpen(true)}
+                  className="w-full py-3 rounded-lg font-semibold transition-opacity hover:opacity-90"
+                  style={{
+                    backgroundColor: "var(--accent-primary)",
+                    color: "var(--surface-base)",
+                    fontSize: "14px",
+                    fontFamily: "var(--font-body)",
+                  }}
+                >
+                  Generate share link
+                </button>
+                <p
+                  className="mt-3 text-center"
+                  style={{
+                    fontFamily: "var(--font-body)",
+                    fontSize: "12px",
+                    color: "var(--text-disabled)",
+                  }}
+                >
+                  Create a link to share this session with others
+                </p>
+              </div>
+            </div>
+          )}
         </div>
       </div>
 
@@ -1103,21 +1152,20 @@ export default function SessionWorkbench() {
           const tabId = id;
           const isActive = activeTab === tabId;
           return (
-            <button
+              <button
               key={tabId}
               onClick={() => {
+                if (tabId === "Review" && clips.length === 0) return;
                 setActiveTab(tabId);
                 if (tabId === "Review") {
-                  if (clips.length > 0) {
-                    navigate(`/session/${sessionId}/review`);
-                  }
-                }
-                if (tabId === "Share") {
-                  setShareOpen(true);
+                  navigate(`/session/${sessionId}/review`);
                 }
               }}
               className="flex flex-col items-center gap-1"
-              disabled={tabId === "Review" && clips.length === 0}
+              style={{
+                opacity: tabId === "Review" && clips.length === 0 ? 0.5 : 1,
+                pointerEvents: tabId === "Review" && clips.length === 0 ? "none" : "auto",
+              }}
             >
               <Icon 
                 className="w-5 h-5" 

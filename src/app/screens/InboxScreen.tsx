@@ -98,7 +98,7 @@ export default function InboxScreen() {
   const [searchParams] = useSearchParams();
   const targetSessionId = searchParams.get("sessionId");
   const targetSection = searchParams.get("section");
-  const { clips, loading, staleClips, assignClip, deleteClip } = useInbox();
+  const { clips, loading, error, staleClips, assignClip, deleteClip, refresh } = useInbox();
   const { sessions } = useSessions();
   const [assigningClip, setAssigningClip] = useState<InboxClip | null>(null);
   const [deletingId, setDeletingId] = useState<string | null>(null);
@@ -119,7 +119,7 @@ export default function InboxScreen() {
   };
 
   const handleAssign = async (clipId: string, sessionId: string) => {
-    await assignClip(clipId, sessionId);
+    await assignClip(clipId, sessionId, targetSessionId ? targetSection || undefined : undefined);
     setAssigningClip(null);
     if (targetSessionId) {
       navigate(`/session/${targetSessionId}`);
@@ -189,6 +189,25 @@ export default function InboxScreen() {
       {loading ? (
         <div className="flex-1 flex items-center justify-center">
           <p style={{ fontFamily: "var(--font-body)", fontSize: "13px", color: "var(--text-disabled)" }}>Loading…</p>
+        </div>
+      ) : error ? (
+        <div className="flex-1 flex flex-col items-center justify-center gap-3 px-8">
+          <p style={{ fontFamily: "var(--font-body)", fontSize: "14px", color: "var(--accent-warm)", textAlign: "center" }}>
+            {error}
+          </p>
+          <button
+            onClick={() => refresh()}
+            className="px-4 py-2 rounded-lg"
+            style={{
+              backgroundColor: "var(--surface-raised)",
+              border: "1px solid var(--border-subtle)",
+              fontFamily: "var(--font-body)",
+              fontSize: "13px",
+              color: "var(--accent-primary)",
+            }}
+          >
+            Retry
+          </button>
         </div>
       ) : clips.length === 0 ? (
         /* Empty state */
