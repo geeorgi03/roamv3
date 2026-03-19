@@ -40,6 +40,7 @@ export default function QuickSaveSheet({ capture, onDismiss, fromCaptureFirst, t
   const [sessionName, setSessionName] = useState("");
   const [savedClipId, setSavedClipId] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
+  const [saveError, setSaveError] = useState<string | null>(null);
   const [assignError, setAssignError] = useState<string | null>(null);
   const [assigning, setAssigning] = useState(false);
   const online = useOnlineStatus();
@@ -56,33 +57,41 @@ export default function QuickSaveSheet({ capture, onDismiss, fromCaptureFirst, t
   const ensureSaved = async (): Promise<string> => {
     if (savedClipId) return savedClipId;
     setSaving(true);
+    setSaveError(null);
     try {
+      if (!capture?.blob) {
+        throw new Error("No media captured — please try recording again");
+      }
       let videoUrl: string | undefined;
       let audioUrl: string | undefined;
       let offlineDataUrl: string | undefined;
       let offlineMimeType: string | undefined;
       
-      if (capture?.blob) {
-        if (online) {
-          // Online: upload immediately
-          const uploaded = await uploadFile(capture.blob, capture.mediaType === "audio" ? "audio" : "video");
-          if (capture.mediaType === "audio") {
-            audioUrl = uploaded.url;
-          } else {
-            videoUrl = uploaded.url;
-          }
-        } else {
-          const { dataUrl, mimeType } = await blobToDataUrl(capture.blob);
-          offlineDataUrl = dataUrl;
-          offlineMimeType = mimeType;
-          videoUrl = capture.mediaType === "video" ? dataUrl : undefined;
-          audioUrl = capture.mediaType === "audio" ? dataUrl : undefined;
+      if (online) {
+        // Online: upload immediately
+        const uploaded = await uploadFile(capture.blob, capture.mediaType === "audio" ? "audio" : "video");
+        if (!uploaded?.url) {
+          throw new Error("Upload failed — no media URL returned");
         }
+        if (capture.mediaType === "audio") {
+          audioUrl = uploaded.url;
+        } else {
+          videoUrl = uploaded.url;
+        }
+        if (!videoUrl && !audioUrl) {
+          throw new Error("Upload failed — no media URLs available");
+        }
+      } else {
+        const { dataUrl, mimeType } = await blobToDataUrl(capture.blob);
+        offlineDataUrl = dataUrl;
+        offlineMimeType = mimeType;
+        videoUrl = capture.mediaType === "video" ? dataUrl : undefined;
+        audioUrl = capture.mediaType === "audio" ? dataUrl : undefined;
       }
 
       const clipData = {
-        mediaType: capture?.mediaType || "video",
-        duration: capture?.duration,
+        mediaType: capture.mediaType,
+        duration: capture.duration,
         createdAt: new Date().toISOString(),
         videoUrl,
         audioUrl,
@@ -95,34 +104,40 @@ export default function QuickSaveSheet({ capture, onDismiss, fromCaptureFirst, t
         return clip.id;
       } else {
         const tempId = `temp-${Date.now()}`;
-        if (capture?.blob) {
-          addPendingClip({
-            tempId,
-            mediaType: capture.mediaType,
-            duration: capture.duration,
-            createdAt: new Date().toISOString(),
-            blobBase64: offlineDataUrl || "",
-            blobMimeType: offlineMimeType || capture.blob.type || "application/octet-stream",
-            status: "pending",
-            retryCount: 0,
-          });
-        }
-        
+        addPendingClip({
+          tempId,
+          mediaType: capture.mediaType,
+          duration: capture.duration,
+          createdAt: new Date().toISOString(),
+          blobBase64: offlineDataUrl || "",
+          blobMimeType: offlineMimeType || capture.blob.type || "application/octet-stream",
+          status: "pending",
+          retryCount: 0,
+        });
+
         setSavedClipId(tempId);
         return tempId;
       }
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : "Failed to save";
+      setSaveError(/no media captured/i.test(msg) ? "Recording failed — no media saved" : msg);
+      throw err;
     } finally {
       setSaving(false);
     }
   };
 
   const handleLater = async () => {
-    await ensureSaved();
-    onDismiss();
-    if (fromCaptureFirst) {
-      navigate("/inbox");
-    } else {
-      navigate(-1);
+    try {
+      await ensureSaved();
+      onDismiss();
+      if (fromCaptureFirst) {
+        navigate("/inbox");
+      } else {
+        navigate(-1);
+      }
+    } catch {
+      // keep sheet open; error rendered inline
     }
   };
 
@@ -269,6 +284,33 @@ export default function QuickSaveSheet({ capture, onDismiss, fromCaptureFirst, t
             </p>
 
             {/* Error row for targeted save */}
+            {saveError && (
+              <div
+                className="mb-4 px-3 py-2 rounded-lg flex items-start gap-2"
+                style={{ backgroundColor: "rgba(255, 107, 53, 0.1)", border: "1px solid rgba(255, 107, 53, 0.3)" }}
+              >
+                <AlertCircle className="w-4 h-4 mt-0.5 flex-shrink-0" style={{ color: "var(--accent-warm)" }} />
+                <div className="flex-1">
+                  <p style={{ fontFamily: "var(--font-body)", fontSize: "13px", color: "var(--accent-warm)" }}>{saveError}</p>
+                  <div className="flex gap-3 mt-2">
+                    <button
+                      onClick={() => onDismiss()}
+                      style={{ fontFamily: "var(--font-body)", fontSize: "12px", color: "var(--accent-primary)", fontWeight: 600 }}
+                    >
+                      Retry
+                    </button>
+                    <button
+                      onClick={() => {
+                        onDismiss();
+                      }}
+                      style={{ fontFamily: "var(--font-body)", fontSize: "12px", color: "var(--text-secondary)" }}
+                    >
+                      Dismiss
+                    </button>
+                  </div>
+                </div>
+              </div>
+            )}
             {assignError && (
               <div
                 className="mb-4 px-3 py-2 rounded-lg flex items-start gap-2"

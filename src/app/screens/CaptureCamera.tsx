@@ -20,6 +20,7 @@ export default function CaptureCamera() {
   const [voiceMode, setVoiceMode] = useState(false);
   const [cameraReady, setCameraReady] = useState(false);
   const [cameraError, setCameraError] = useState<string | null>(null);
+  const [recordingError, setRecordingError] = useState<string | null>(null);
   const [capture, setCapture] = useState<CaptureResult | null>(null);
   const [voiceBars, setVoiceBars] = useState<number[]>(Array.from({ length: 24 }, () => 0.3));
 
@@ -98,6 +99,7 @@ export default function CaptureCamera() {
 
   // Start video recording
   const startVideoRecording = () => {
+    setRecordingError(null);
     if (!streamRef.current) return;
     chunksRef.current = [];
     try {
@@ -109,6 +111,8 @@ export default function CaptureCamera() {
       recorder.start(100);
     } catch (e) {
       console.warn("MediaRecorder failed:", e);
+      setRecordingError("Recording failed — no media saved");
+      return;
     }
     setMode("video-recording");
     startTimer();
@@ -116,27 +120,42 @@ export default function CaptureCamera() {
 
   // Start voice recording
   const startVoiceRecording = () => {
+    setRecordingError(null);
     chunksRef.current = [];
+    let started = false;
     try {
       navigator.mediaDevices
         .getUserMedia({ audio: true })
         .then((audioStream) => {
           streamRef.current = audioStream;
-          const recorder = new MediaRecorder(audioStream);
-          recorder.ondataavailable = (e) => {
-            if (e.data.size > 0) chunksRef.current.push(e.data);
-          };
-          recorderRef.current = recorder;
-          recorder.start(100);
+          try {
+            const recorder = new MediaRecorder(audioStream);
+            recorder.ondataavailable = (e) => {
+              if (e.data.size > 0) chunksRef.current.push(e.data);
+            };
+            recorderRef.current = recorder;
+            recorder.start(100);
+            started = true;
+            setMode("voice-recording");
+            setVoiceMode(true);
+            startTimer();
+            startVoiceAnim();
+          } catch (err) {
+            console.warn("MediaRecorder failed:", err);
+            setRecordingError("Recording failed — no media saved");
+          }
         })
-        .catch((e) => console.warn("Mic unavailable:", e));
+        .catch((e) => {
+          console.warn("Mic unavailable:", e);
+          setRecordingError("Recording failed — no media saved");
+        });
     } catch (e) {
       console.warn("Audio recording unavailable:", e);
+      setRecordingError("Recording failed — no media saved");
     }
-    setMode("voice-recording");
-    setVoiceMode(true);
-    startTimer();
-    startVoiceAnim();
+    if (!started) {
+      // wait for async getUserMedia to succeed before switching modes
+    }
   };
 
   // Stop recording
@@ -144,24 +163,30 @@ export default function CaptureCamera() {
     const duration = stopTimer();
     stopVoiceAnim();
 
-    return new Promise<CaptureResult>((resolve) => {
-      if (recorderRef.current && recorderRef.current.state !== "inactive") {
-        recorderRef.current.onstop = () => {
+    if (!recorderRef.current || recorderRef.current.state === "inactive") {
+      throw new Error("No media captured — please try recording again");
+    }
+
+    return new Promise<CaptureResult>((resolve, reject) => {
+      const recorder = recorderRef.current!;
+      recorder.onstop = () => {
+        try {
           const mimeType = voiceMode ? "audio/webm" : "video/webm";
           const blob = new Blob(chunksRef.current, { type: mimeType });
+          if (!blob || blob.size === 0) {
+            reject(new Error("No media captured — please try recording again"));
+            return;
+          }
           resolve({
             mediaType: voiceMode ? "audio" : "video",
             blob,
             duration,
           });
-        };
-        recorderRef.current.stop();
-      } else {
-        resolve({
-          mediaType: voiceMode ? "audio" : "video",
-          duration,
-        });
-      }
+        } catch (e) {
+          reject(e instanceof Error ? e : new Error("Recording failed"));
+        }
+      };
+      recorder.stop();
     });
   }, [voiceMode]);
 
@@ -170,10 +195,19 @@ export default function CaptureCamera() {
     if (mode === "idle" && !voiceMode) {
       startVideoRecording();
     } else if (mode === "video-recording") {
-      const result = await stopRecording();
-      stopAllTracks();
-      setMode("saved");
-      setCapture(result);
+      try {
+        const result = await stopRecording();
+        stopAllTracks();
+        setMode("saved");
+        setCapture(result);
+      } catch {
+        stopAllTracks();
+        setMode("idle");
+        setCapture(null);
+        setVoiceMode(false);
+        setRecordingError("Recording failed — no media saved");
+        startCamera();
+      }
     }
   };
 
@@ -207,11 +241,21 @@ export default function CaptureCamera() {
     }
 
     if (mode === "voice-recording") {
-      const result = await stopRecording();
-      stopAllTracks();
-      setMode("saved");
-      setCapture(result);
-      setLongPressProgress(0);
+      try {
+        const result = await stopRecording();
+        stopAllTracks();
+        setMode("saved");
+        setCapture(result);
+        setLongPressProgress(0);
+      } catch {
+        stopAllTracks();
+        setMode("idle");
+        setCapture(null);
+        setVoiceMode(false);
+        setRecordingError("Recording failed — no media saved");
+        setLongPressProgress(0);
+        startCamera();
+      }
     } else {
       setLongPressProgress(0);
     }
@@ -238,6 +282,42 @@ export default function CaptureCamera() {
 
   return (
     <div className="fixed inset-0 flex flex-col" style={{ backgroundColor: "#000", zIndex: 100 }}>
+      {/* Recording error overlay */}
+      {recordingError && (
+        <div
+          className="absolute inset-0 flex flex-col items-center justify-center gap-4 px-8"
+          style={{ backgroundColor: "rgba(0,0,0,0.78)", zIndex: 200 }}
+        >
+          <p style={{ fontFamily: "var(--font-app-title)", fontWeight: 700, fontSize: "16px", color: "#fff", textAlign: "center" }}>
+            Recording failed — no media saved
+          </p>
+          <div className="flex gap-3">
+            <button
+              onClick={() => {
+                setRecordingError(null);
+                setMode("idle");
+                setCapture(null);
+                setVoiceMode(false);
+                startCamera();
+              }}
+              className="px-4 py-2 rounded-lg"
+              style={{ backgroundColor: "var(--accent-primary)", fontFamily: "var(--font-body)", fontSize: "13px", fontWeight: 600, color: "var(--surface-base)" }}
+            >
+              Retry
+            </button>
+            <button
+              onClick={() => {
+                setRecordingError(null);
+                navigate(-1);
+              }}
+              className="px-4 py-2 rounded-lg"
+              style={{ backgroundColor: "rgba(255,255,255,0.1)", border: "1px solid rgba(255,255,255,0.2)", fontFamily: "var(--font-body)", fontSize: "13px", color: "#fff" }}
+            >
+              Dismiss
+            </button>
+          </div>
+        </div>
+      )}
       {/* ── Camera preview / Voice background ── */}
       {voiceMode ? (
         /* Voice-only — pure black with animated mic */
