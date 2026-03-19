@@ -23,6 +23,7 @@ export function useInbox() {
   const [pendingClips, setPendingClips] = useState<PendingClip[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [notice, setNotice] = useState<string | null>(null);
   const online = useOnlineStatus();
 
   const refreshPending = useCallback(() => {
@@ -33,6 +34,18 @@ export function useInbox() {
     try {
       setLoading(true);
       setError(null);
+      setNotice(null);
+
+      // Offline mode: never attempt a server load. Keep this non-fatal so local pending clips remain usable.
+      // Prefer the hook's online status, but fall back to navigator.onLine if needed.
+      const isOffline = online === false || (typeof navigator !== "undefined" && navigator.onLine === false);
+      if (isOffline) {
+        refreshPending();
+        setServerClips([]);
+        setNotice("You're offline — showing anything saved locally. We'll sync when you're back online.");
+        return;
+      }
+
       const res = await apiRequest("/inbox");
       if (!res.ok) {
         const body = await res.json().catch(() => ({}));
@@ -47,14 +60,15 @@ export function useInbox() {
         !navigator.onLine ||
         (err instanceof Error && /failed to fetch|networkerror|network request failed|load failed|offline/i.test(err.message));
       if (isOfflineFetchFailure) {
-        setError("You're offline — showing anything saved locally. We'll sync when you're back online.");
+        refreshPending();
+        setNotice("You're offline — showing anything saved locally. We'll sync when you're back online.");
       } else {
         setError(err instanceof Error ? err.message : "Failed to load inbox");
       }
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [online, refreshPending]);
 
   useEffect(() => {
     load();
@@ -175,6 +189,7 @@ export function useInbox() {
     syncPending,
     loading,
     error,
+    notice,
     staleClips,
     saveClip,
     assignClip,

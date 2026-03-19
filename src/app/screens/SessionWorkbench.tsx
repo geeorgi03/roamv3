@@ -104,6 +104,16 @@ export default function SessionWorkbench() {
   // Toast from navigation
   const [navToast, setNavToast] = useState<string | null>(null);
 
+  // Toast for offline share attempts (must work outside the Share tab)
+  const [shareToast, setShareToast] = useState<{ title: string; variant?: string } | null>(null);
+  const shareToastTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  const toast = ({ title, variant }: { title: string; variant?: string }) => {
+    if (shareToastTimeoutRef.current) clearTimeout(shareToastTimeoutRef.current);
+    setShareToast({ title, variant });
+    shareToastTimeoutRef.current = setTimeout(() => setShareToast(null), 2500);
+  };
+
   // Live loop drag preview
   const [loopDraftPreview, setLoopDraftPreview] = useState<{
     leftPct: number;
@@ -153,6 +163,7 @@ export default function SessionWorkbench() {
     if (!el) return;
     el.playbackRate = playbackSpeed;
   }, [playbackSpeed]);
+
 
   useEffect(() => {
     const el = audioRef.current;
@@ -430,7 +441,9 @@ export default function SessionWorkbench() {
           {session.songName} — {session.artist}
         </div>
         <div className="flex items-center gap-3">
-          <button onClick={() => setShareOpen(true)}>
+          <button onClick={() => {
+            setActiveTab("Share");
+          }}>
             <Share2 className="w-5 h-5" style={{ color: 'var(--text-secondary)' }} />
           </button>
           <button>
@@ -1393,6 +1406,11 @@ export default function SessionWorkbench() {
                 <button
                   onClick={(e) => {
                     e.stopPropagation();
+                    if (!online) {
+                      if (shareOpen) setShareOpen(false);
+                      toast({ title: 'Internet required to share', variant: 'destructive' });
+                      return;
+                    }
                     setShareClipId(clip.id);
                     setShareOpen(true);
                   }}
@@ -1574,7 +1592,7 @@ export default function SessionWorkbench() {
                           </button>
 
                           {/* Voice memo collapsed waveform (tap target) */}
-                          {n.audioUrl && playingNoteId !== n.id && (
+                          {n.audioUrl && (
                             <button
                               onClick={(e) => {
                                 e.stopPropagation();
@@ -1719,7 +1737,7 @@ export default function SessionWorkbench() {
               <div className="mt-4 space-y-3">
                 {shareClips.length === 0 ? (
                   <div style={{ fontFamily: "var(--font-body)", fontSize: "14px", color: "var(--text-disabled)", textAlign: "center", padding: "20px" }}>
-                    No clips to share yet
+                    No clips yet — record a clip to share it
                   </div>
                 ) : (
                   shareClips.map((clip) => {
@@ -1768,6 +1786,11 @@ export default function SessionWorkbench() {
                         </div>
                         <button
                           onClick={() => {
+                            if (!online) {
+                              if (shareOpen) setShareOpen(false);
+                              toast({ title: 'Internet required to share', variant: 'destructive' });
+                              return;
+                            }
                             setShareClipId(clip.id);
                             setShareOpen(true);
                           }}
@@ -1911,6 +1934,39 @@ export default function SessionWorkbench() {
           <span style={{ fontFamily: "var(--font-body)", fontSize: "13px", color: "var(--accent-primary)" }}>
             {navToast} ✓
           </span>
+        </div>
+      )}
+
+      {/* Global toast for offline share attempts */}
+      {shareToast && (
+        <div
+          className="fixed bottom-28 left-1/2 -translate-x-1/2 px-5 py-2.5 rounded-full pointer-events-none"
+          style={{
+            backgroundColor:
+              shareToast.variant === 'destructive'
+                ? 'color-mix(in srgb, var(--accent-warm) 10%, transparent)'
+                : 'color-mix(in srgb, var(--surface-base) 92%, transparent)',
+            border:
+              shareToast.variant === 'destructive'
+                ? '1px solid color-mix(in srgb, var(--accent-warm) 30%, transparent)'
+                : '1px solid var(--border-subtle)',
+            zIndex: 61,
+          }}
+        >
+          <div className="flex items-center gap-2">
+            {shareToast.variant === 'destructive' && (
+              <WifiOff className="w-3.5 h-3.5" style={{ color: 'var(--accent-warm)' }} />
+            )}
+            <span
+              style={{
+                fontFamily: "var(--font-body)",
+                fontSize: "13px",
+                color: shareToast.variant === 'destructive' ? 'var(--accent-warm)' : "var(--accent-primary)",
+              }}
+            >
+              {shareToast.title}
+            </span>
+          </div>
         </div>
       )}
     </div>

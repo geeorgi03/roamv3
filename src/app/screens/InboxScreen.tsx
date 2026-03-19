@@ -130,7 +130,7 @@ export default function InboxScreen() {
   const [searchParams] = useSearchParams();
   const targetSessionId = searchParams.get("sessionId");
   const targetSection = searchParams.get("section");
-  const { clips, loading, error, staleClips, assignClip, deleteClip, refresh, syncPending } = useInbox();
+  const { clips, loading, error, notice, staleClips, assignClip, deleteClip, refresh, syncPending } = useInbox();
   const { sessions } = useSessions();
   const [assigningClip, setAssigningClip] = useState<InboxClip | null>(null);
   const [deletingId, setDeletingId] = useState<string | null>(null);
@@ -353,10 +353,31 @@ export default function InboxScreen() {
           >
             Clips you capture without a session will appear here.
           </p>
+          {notice && (
+            <p style={{ fontFamily: "var(--font-body)", fontSize: "12px", color: "var(--text-disabled)", textAlign: "center", lineHeight: "1.6" }}>
+              {notice}
+            </p>
+          )}
         </div>
       ) : (
         <div className="flex-1 overflow-auto pt-2 pb-8">
-          {/* Non-blocking error banner */}
+          {/* Non-blocking notice/error banner (never use full-page error for expected offline mode) */}
+          {notice && (
+            <div
+              className="mx-4 mb-3 px-4 py-3 rounded-xl flex items-start justify-between gap-3"
+              style={{
+                backgroundColor: "rgba(120, 120, 120, 0.10)",
+                border: "1px solid rgba(120, 120, 120, 0.25)",
+              }}
+            >
+              <div className="flex items-start gap-2">
+                <WifiOff className="w-4 h-4 mt-0.5 flex-shrink-0" style={{ color: "var(--text-secondary)" }} />
+                <p style={{ fontFamily: "var(--font-body)", fontSize: "13px", color: "var(--text-secondary)", lineHeight: "1.4" }}>
+                  {notice}
+                </p>
+              </div>
+            </div>
+          )}
           {error && (
             <div
               className="mx-4 mb-3 px-4 py-3 rounded-xl flex items-start justify-between gap-3"
