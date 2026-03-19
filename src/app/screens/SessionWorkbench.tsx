@@ -23,6 +23,7 @@ import { useSessionData } from "../hooks/useSessionData";
 import NotePinSheet from "../components/NotePinSheet";
 import ShareSheet from "../components/ShareSheet";
 import AddClipActionSheet from "../components/AddClipActionSheet";
+import VoiceMiniPlayer from "../components/VoiceMiniPlayer";
 import { apiRequest, uploadFile } from "../../utils/supabase";
 
 export default function SessionWorkbench() {
@@ -70,6 +71,8 @@ export default function SessionWorkbench() {
   const [playingNoteId, setPlayingNoteId] = useState<string | null>(null);
   const voiceMemoRef = useRef<HTMLAudioElement | null>(null);
   const musicWasPlayingBeforeMemo = useRef<boolean>(false);
+  const [voiceMemoCurrentTime, setVoiceMemoCurrentTime] = useState(0);
+  const [voiceMemoDuration, setVoiceMemoDuration] = useState(0);
 
   // Loop inline popover
   const [loopPopover, setLoopPopover] = useState<{
@@ -102,6 +105,17 @@ export default function SessionWorkbench() {
     startTime: number;
     endTime: number;
   } | null>(null);
+
+  // Loop handle drag state for resizing existing regions
+  const [loopHandleDrag, setLoopHandleDrag] = useState<{
+    loopId: string;
+    edge: 'start' | 'end';
+    originalStart: number;
+    originalEnd: number;
+  } | null>(null);
+
+  // Local edits to loop boundaries (not persisted until Done is tapped)
+  const [loopEdits, setLoopEdits] = useState<Record<string, { startTime: number; endTime: number }>>({});
 
   useEffect(() => {
     const next = session?.sections?.[0]?.name ?? null;
@@ -251,9 +265,12 @@ export default function SessionWorkbench() {
     if (playingNoteId === noteId) {
       voiceMemoRef.current?.pause();
       setPlayingNoteId(null);
+      setVoiceMemoCurrentTime(0);
+      setVoiceMemoDuration(0);
       if (musicWasPlayingBeforeMemo.current) {
         audioRef.current?.play().catch(() => {});
       }
+      musicWasPlayingBeforeMemo.current = false;
       return;
     }
     // Stop any existing voice memo
@@ -261,21 +278,39 @@ export default function SessionWorkbench() {
       voiceMemoRef.current.pause();
       voiceMemoRef.current.src = "";
     }
-    // Track whether music was playing before starting memo
-    musicWasPlayingBeforeMemo.current = audioRef.current ? !audioRef.current.paused : false;
-    // Pause music
-    audioRef.current?.pause();
+    // Reset scrub bar state
+    setVoiceMemoCurrentTime(0);
+    setVoiceMemoDuration(0);
+    // Only capture music state when transitioning from no memo to an active memo
+    // Do not overwrite when switching between voice notes
+    if (playingNoteId === null) {
+      musicWasPlayingBeforeMemo.current = audioRef.current ? !audioRef.current.paused : false;
+      // Pause music only when starting first memo
+      audioRef.current?.pause();
+    }
 
     const audio = new Audio(audioUrl);
     voiceMemoRef.current = audio;
+    audio.ontimeupdate = () => setVoiceMemoCurrentTime(audio.currentTime);
+    audio.onloadedmetadata = () => setVoiceMemoDuration(audio.duration);
     audio.onended = () => {
       setPlayingNoteId(null);
+      setVoiceMemoCurrentTime(0);
+      setVoiceMemoDuration(0);
       if (musicWasPlayingBeforeMemo.current) {
         audioRef.current?.play().catch(() => {});
       }
+      musicWasPlayingBeforeMemo.current = false;
     };
     audio.play().catch(() => {});
     setPlayingNoteId(noteId);
+  };
+
+  const handleVoiceMemoSeek = (time: number) => {
+    if (voiceMemoRef.current) {
+      voiceMemoRef.current.currentTime = time;
+      setVoiceMemoCurrentTime(time);
+    }
   };
 
   if (loading) {
@@ -466,41 +501,47 @@ export default function SessionWorkbench() {
                   </div>
 
                   {/* Section markers */}
-                  <div className="absolute top-1 left-0 right-0 flex justify-around px-4">
-                    {sections.length === 0 ? (
-                      <div
-                        className="px-2 py-0.5 rounded-full text-center"
-                        style={{
-                          backgroundColor: 'var(--surface-overlay)',
-                          border: `1px solid var(--border-subtle)`,
-                          fontSize: '10px',
-                          color: 'var(--text-secondary)',
-                          fontFamily: 'var(--font-body)'
-                        }}
-                      >
-                        No sections
-                      </div>
-                    ) : (
-                      sections.map((section) => {
-                        const isActive = section.name === activeSection;
-                        return (
-                          <button
-                            key={section.name}
-                            onClick={() => setActiveSection(section.name)}
-                            className="px-2 py-0.5 rounded-full text-center transition-opacity hover:opacity-90"
-                            style={{
-                              backgroundColor: isActive ? 'rgba(200, 241, 53, 0.2)' : 'var(--surface-overlay)',
-                              border: `1px solid ${isActive ? 'var(--accent-primary)' : 'var(--border-subtle)'}`,
-                              fontSize: '10px',
-                              color: isActive ? 'var(--accent-primary)' : 'var(--text-secondary)',
-                              fontFamily: 'var(--font-body)'
-                            }}
-                          >
-                            {section.name}
-                          </button>
-                        );
-                      })
-                    )}
+                  <div className="absolute top-1 left-0 right-0 px-4" style={{ height: '20px', pointerEvents: 'none' }}>
+                    <div className="relative w-full h-full" style={{ pointerEvents: 'auto' }}>
+                      {sections.length === 0 ? (
+                        <div
+                          className="px-2 py-0.5 rounded-full text-center absolute left-1/2 -translate-x-1/2"
+                          style={{
+                            backgroundColor: 'var(--surface-overlay)',
+                            border: `1px solid var(--border-subtle)`,
+                            fontSize: '10px',
+                            color: 'var(--text-secondary)',
+                            fontFamily: 'var(--font-body)'
+                          }}
+                        >
+                          No sections
+                        </div>
+                      ) : (
+                        sections.map((section) => {
+                          const isActive = section.name === activeSection;
+                          const leftPct = duration > 0 ? (section.start / duration) * 100 : 0;
+                          return (
+                            <button
+                              key={section.name}
+                              onClick={() => setActiveSection(section.name)}
+                              className="px-2 py-0.5 rounded-full text-center transition-opacity hover:opacity-90 absolute"
+                              style={{
+                                left: `${leftPct}%`,
+                                transform: 'translateX(-50%)',
+                                backgroundColor: isActive ? 'color-mix(in srgb, var(--accent-primary) 20%, transparent)' : 'var(--surface-overlay)',
+                                border: `1px solid ${isActive ? 'var(--accent-primary)' : 'var(--border-subtle)'}`,
+                                fontSize: '10px',
+                                color: isActive ? 'var(--accent-primary)' : 'var(--text-secondary)',
+                                fontFamily: 'var(--font-body)',
+                                whiteSpace: 'nowrap',
+                              }}
+                            >
+                              {section.name}
+                            </button>
+                          );
+                        })
+                      )}
+                    </div>
                   </div>
 
                   {/* Playhead */}
@@ -508,7 +549,7 @@ export default function SessionWorkbench() {
                     className="absolute top-0 bottom-0 w-0.5"
                     style={{ 
                       left: `${playheadPct}%`,
-                      backgroundColor: '#ff0000'
+                      backgroundColor: 'var(--accent-warm)'
                     }}
                   />
                 </>
@@ -529,44 +570,39 @@ export default function SessionWorkbench() {
             <Pin className="w-4 h-4" style={{ color: 'var(--text-secondary)' }} />
           </div>
           <div
-            className="flex-1 relative h-full"
-            onPointerDown={(e) => {
-              if (e.pointerType === "mouse" && (e as any).button === 2) return;
-              const t = window.setTimeout(() => {
-                openNoteSheetAt(currentTime);
-              }, 450);
-              (e.currentTarget as any)._lp = t;
-            }}
-            onPointerUp={(e) => {
-              const t = (e.currentTarget as any)._lp;
-              if (t) window.clearTimeout(t);
-              (e.currentTarget as any)._lp = null;
-            }}
-            onPointerLeave={(e) => {
-              const t = (e.currentTarget as any)._lp;
-              if (t) window.clearTimeout(t);
-              (e.currentTarget as any)._lp = null;
-            }}
+            className="flex-1 relative h-full cursor-pointer"
+            onClick={() => openNoteSheetAt(currentTime)}
           >
             {/* Note pin dots */}
             {notes.length === 0 ? (
               <div className="absolute inset-0 flex items-center px-4" style={{ fontFamily: "var(--font-body)", fontSize: "11px", color: "var(--text-disabled)" }}>
-                Long-press to pin a note
+                Tap to pin a note
               </div>
             ) : (
               notes.map((note, i) => {
                 const pct = duration > 0 ? (note.timecode / duration) * 100 : 0;
                 const colors = ['var(--accent-cool)', 'var(--accent-primary)', 'var(--accent-warm)'];
+                const isVoiceNote = !!note.audioUrl;
                 return (
                   <button
                     key={note.id}
-                    onClick={() => openNoteSheetAt(note.timecode)}
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      if (isVoiceNote) {
+                        setActiveTab("Notes");
+                        handleVoiceNotePlay(note.id, note.audioUrl!);
+                      } else {
+                        if (audioRef.current) {
+                          audioRef.current.currentTime = note.timecode;
+                        }
+                      }
+                    }}
                     className="absolute top-1/2 -translate-y-1/2 w-2 h-2 rounded-full"
                     style={{
                       left: `${pct}%`,
                       backgroundColor: colors[i % colors.length],
                     }}
-                    aria-label="Open note"
+                    aria-label={isVoiceNote ? "Play voice note" : "Jump to note"}
                   />
                 );
               })
@@ -637,20 +673,51 @@ export default function SessionWorkbench() {
             className="flex-1 relative h-full"
             onPointerDown={(e) => {
               if (duration <= 0) return;
+              // Max 8 regions check
+              if (loops.length + (draftLoop ? 1 : 0) >= 8) return;
               const rect = (e.currentTarget as HTMLDivElement).getBoundingClientRect();
               const x = e.clientX - rect.left;
               const pct = Math.min(1, Math.max(0, x / rect.width));
-              const start = pct * duration;
+              const start = Math.round(pct * duration * 10) / 10; // 0.1s snap
               (e.currentTarget as any)._loopDraft = { start, startX: x, rectWidth: rect.width };
               (e.currentTarget as any)._loopDragging = true;
             }}
             onPointerMove={(e) => {
+              // Handle existing loop handle drag
+              if (loopHandleDrag && duration > 0) {
+                const rect = (e.currentTarget as HTMLDivElement).getBoundingClientRect();
+                const x = e.clientX - rect.left;
+                const pct = Math.min(1, Math.max(0, x / rect.width));
+                const rawTime = pct * duration;
+                const snappedTime = Math.round(rawTime * 10) / 10; // 0.1s snap
+                const MIN_LOOP_DURATION = 2;
+                
+                let newStart = loopHandleDrag.originalStart;
+                let newEnd = loopHandleDrag.originalEnd;
+                
+                if (loopHandleDrag.edge === 'start') {
+                  newStart = Math.min(snappedTime, newEnd - MIN_LOOP_DURATION);
+                  newStart = Math.max(0, newStart);
+                } else {
+                  newEnd = Math.max(snappedTime, newStart + MIN_LOOP_DURATION);
+                  newEnd = Math.min(duration, newEnd);
+                }
+                
+                setLoopEdits(prev => ({
+                  ...prev,
+                  [loopHandleDrag.loopId]: { startTime: newStart, endTime: newEnd }
+                }));
+                return;
+              }
+
               const draft = (e.currentTarget as any)._loopDraft;
               if (!draft || !(e.currentTarget as any)._loopDragging || duration <= 0) return;
               const rect = (e.currentTarget as HTMLDivElement).getBoundingClientRect();
               const x = e.clientX - rect.left;
               const pct = Math.min(1, Math.max(0, x / rect.width));
-              draft.end = pct * duration;
+              const rawEnd = pct * duration;
+              const snappedEnd = Math.round(rawEnd * 10) / 10; // 0.1s snap
+              draft.end = snappedEnd;
               (e.currentTarget as any)._loopDraft = draft;
               const startTime = Math.min(draft.start, draft.end);
               const endTime = Math.max(draft.start, draft.end);
@@ -663,14 +730,20 @@ export default function SessionWorkbench() {
               (e.currentTarget as any).style.cursor = "grabbing";
             }}
             onPointerUp={(e) => {
+              // Handle existing loop handle drag release
+              if (loopHandleDrag) {
+                setLoopHandleDrag(null);
+                return;
+              }
+
               const draft = (e.currentTarget as any)._loopDraft;
               (e.currentTarget as any)._loopDragging = false;
               (e.currentTarget as any)._loopDraft = null;
               setLoopDraftPreview(null);
               (e.currentTarget as any).style.cursor = "default";
               if (!draft || duration <= 0 || typeof draft.end !== "number") return;
-              let start = Math.min(draft.start, draft.end);
-              let end = Math.max(draft.start, draft.end);
+              let start = Math.round(Math.min(draft.start, draft.end) * 10) / 10; // 0.1s snap
+              let end = Math.round(Math.max(draft.start, draft.end) * 10) / 10; // 0.1s snap
               const MIN_LOOP_DURATION = 2;
               if (end - start < MIN_LOOP_DURATION) {
                 const center = (start + end) / 2;
@@ -684,9 +757,12 @@ export default function SessionWorkbench() {
                   }
                 }
               }
-              const loopLabels = ["A", "B", "C", "D", "E", "F"];
+              // Snap final values
+              start = Math.round(start * 10) / 10;
+              end = Math.round(end * 10) / 10;
+              const loopLabels = ["A", "B", "C", "D", "E", "F", "G", "H"];
               const autoName = `Loop ${loopLabels[(loops.length + (draftLoop ? 1 : 0)) % loopLabels.length]}`;
-              const defaultColor = "#4ECDC4";
+              const defaultColor = "var(--accent-cool)";
               const defaultRepeatCount = "4×";
               setDraftLoop({
                 startTime: start,
@@ -710,6 +786,10 @@ export default function SessionWorkbench() {
               <div className="absolute inset-0 flex items-center px-4" style={{ fontFamily: "var(--font-body)", fontSize: "11px", color: "var(--text-disabled)" }}>
                 Drag to create a loop
               </div>
+            ) : loops.length + (draftLoop ? 1 : 0) >= 8 && !loopDraftPreview ? (
+              <div className="absolute inset-0 flex items-center justify-center px-4" style={{ fontFamily: "var(--font-body)", fontSize: "11px", color: "var(--text-disabled)", backgroundColor: "color-mix(in srgb, var(--surface-base) 30%, transparent)" }}>
+                Maximum 8 regions reached
+              </div>
             ) : null}
 
             {/* Draft loop (not yet persisted - visible until page reload) */}
@@ -717,7 +797,7 @@ export default function SessionWorkbench() {
               (() => {
                 const left = duration > 0 ? (draftLoop.startTime / duration) * 100 : 0;
                 const width = duration > 0 ? ((draftLoop.endTime - draftLoop.startTime) / duration) * 100 : 0;
-                const loopColor = draftLoop.color || "#4ECDC4";
+                const loopColor = draftLoop.color || "var(--accent-cool)";
                 return (
                   <div
                     onClick={(e) => {
@@ -764,42 +844,53 @@ export default function SessionWorkbench() {
                 style={{
                   left: `${loopDraftPreview.leftPct}%`,
                   width: `${Math.max(1, loopDraftPreview.widthPct)}%`,
-                  backgroundColor: "rgba(78, 205, 196, 0.25)",
-                  borderTop: "2px dashed #4ECDC4",
-                  borderBottom: "2px dashed #4ECDC4",
+                  backgroundColor: "color-mix(in srgb, var(--accent-cool) 25%, transparent)",
+                  borderTop: "2px dashed var(--accent-cool)",
+                  borderBottom: "2px dashed var(--accent-cool)",
                 }}
               >
+                {/* Left floating timecode label */}
                 <div
-                  className="absolute -top-5 left-1/2 -translate-x-1/2 px-2 py-0.5 rounded whitespace-nowrap"
+                  className="absolute -top-5 px-1.5 py-0.5 rounded whitespace-nowrap"
                   style={{
-                    backgroundColor: "rgba(30, 30, 35, 0.9)",
+                    left: 0,
+                    transform: 'translateX(-50%)',
+                    backgroundColor: "color-mix(in srgb, var(--surface-overlay) 90%, transparent)",
                     fontSize: "10px",
-                    color: "#4ECDC4",
+                    color: "var(--accent-cool)",
                     fontFamily: "var(--font-mono)",
                   }}
                 >
-                  {formatTime(loopDraftPreview.startTime)} – {formatTime(loopDraftPreview.endTime)}
+                  {formatTime(loopDraftPreview.startTime)}
+                </div>
+                {/* Right floating timecode label */}
+                <div
+                  className="absolute -top-5 px-1.5 py-0.5 rounded whitespace-nowrap"
+                  style={{
+                    right: 0,
+                    transform: 'translateX(50%)',
+                    backgroundColor: "color-mix(in srgb, var(--surface-overlay) 90%, transparent)",
+                    fontSize: "10px",
+                    color: "var(--accent-cool)",
+                    fontFamily: "var(--font-mono)",
+                  }}
+                >
+                  {formatTime(loopDraftPreview.endTime)}
                 </div>
               </div>
             )}
 
             {loops.map((loop) => {
-              const left = duration > 0 ? (loop.startTime / duration) * 100 : 0;
-              const width = duration > 0 ? ((loop.endTime - loop.startTime) / duration) * 100 : 0;
-              const loopColor = loop.color || "#C8F135";
+              const edited = loopEdits[loop.id];
+              const startTime = edited?.startTime ?? loop.startTime;
+              const endTime = edited?.endTime ?? loop.endTime;
+              const left = duration > 0 ? (startTime / duration) * 100 : 0;
+              const width = duration > 0 ? ((endTime - startTime) / duration) * 100 : 0;
+              const loopColor = loop.color || "var(--accent-primary)";
+              const isBeingDragged = loopHandleDrag?.loopId === loop.id;
               return (
-                <button
+                <div
                   key={loop.id}
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    setLoopPopover({
-                      loopId: loop.id,
-                      name: loop.name,
-                      color: loop.color || "#4ECDC4",
-                      repeatCount: loop.repeatCount || "4×",
-                      leftPct: left,
-                    });
-                  }}
                   className="absolute top-1/2 -translate-y-1/2 h-6 rounded transition-opacity hover:opacity-80"
                   style={{
                     left: `${left}%`,
@@ -809,10 +900,56 @@ export default function SessionWorkbench() {
                     borderBottom: `2px solid ${loopColor}`,
                   }}
                 >
-                  <div className="absolute -left-1 top-1/2 -translate-y-1/2 w-2 h-2 rounded-full" style={{ backgroundColor: loopColor }} />
-                  <div className="absolute -right-1 top-1/2 -translate-y-1/2 w-2 h-2 rounded-full" style={{ backgroundColor: loopColor }} />
+                  {/* Left drag handle */}
+                  <div
+                    className="absolute -left-1 top-0 bottom-0 w-3 cursor-ew-resize z-10 flex items-center justify-center"
+                    onPointerDown={(e) => {
+                      e.stopPropagation();
+                      e.currentTarget.setPointerCapture(e.pointerId);
+                      setLoopHandleDrag({
+                        loopId: loop.id,
+                        edge: 'start',
+                        originalStart: startTime,
+                        originalEnd: endTime,
+                      });
+                    }}
+                  >
+                    <div className="w-2 h-2 rounded-full" style={{ backgroundColor: loopColor }} />
+                  </div>
+                  {/* Right drag handle */}
+                  <div
+                    className="absolute -right-1 top-0 bottom-0 w-3 cursor-ew-resize z-10 flex items-center justify-center"
+                    onPointerDown={(e) => {
+                      e.stopPropagation();
+                      e.currentTarget.setPointerCapture(e.pointerId);
+                      setLoopHandleDrag({
+                        loopId: loop.id,
+                        edge: 'end',
+                        originalStart: startTime,
+                        originalEnd: endTime,
+                      });
+                    }}
+                  >
+                    <div className="w-2 h-2 rounded-full" style={{ backgroundColor: loopColor }} />
+                  </div>
+                  {/* Clickable center area to open popover */}
+                  <button
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      setLoopPopover({
+                        loopId: loop.id,
+                        name: loop.name,
+                        color: loop.color || "var(--accent-cool)",
+                        repeatCount: loop.repeatCount || "4×",
+                        leftPct: left,
+                      });
+                    }}
+                    className="absolute inset-0"
+                    style={{ cursor: 'pointer' }}
+                  />
+                  {/* Label above the region */}
                   <div 
-                    className="absolute -top-4 left-1/2 -translate-x-1/2 whitespace-nowrap"
+                    className="absolute -top-4 left-1/2 -translate-x-1/2 whitespace-nowrap pointer-events-none"
                     style={{ 
                       fontSize: '10px',
                       color: loopColor,
@@ -821,7 +958,38 @@ export default function SessionWorkbench() {
                   >
                     {loop.name}{loop.repeatCount ? ` · ${loop.repeatCount}` : ""}
                   </div>
-                </button>
+                  {/* Floating timecode labels when handle is being dragged */}
+                  {isBeingDragged && edited && (
+                    <>
+                      <div
+                        className="absolute -top-5 px-1.5 py-0.5 rounded whitespace-nowrap pointer-events-none"
+                        style={{
+                          left: 0,
+                          transform: 'translateX(-50%)',
+                          backgroundColor: "color-mix(in srgb, var(--surface-overlay) 90%, transparent)",
+                          fontSize: "10px",
+                          color: loopColor,
+                          fontFamily: "var(--font-mono)",
+                        }}
+                      >
+                        {formatTime(edited.startTime)}
+                      </div>
+                      <div
+                        className="absolute -top-5 px-1.5 py-0.5 rounded whitespace-nowrap pointer-events-none"
+                        style={{
+                          right: 0,
+                          transform: 'translateX(50%)',
+                          backgroundColor: "color-mix(in srgb, var(--surface-overlay) 90%, transparent)",
+                          fontSize: "10px",
+                          color: loopColor,
+                          fontFamily: "var(--font-mono)",
+                        }}
+                      >
+                        {formatTime(edited.endTime)}
+                      </div>
+                    </>
+                  )}
+                </div>
               );
             })}
 
@@ -843,7 +1011,7 @@ export default function SessionWorkbench() {
                     backgroundColor: "var(--surface-raised)",
                     border: "1px solid var(--border-subtle)",
                     minWidth: "200px",
-                    boxShadow: "0 4px 20px rgba(0,0,0,0.4)",
+                    boxShadow: "0 4px 20px color-mix(in srgb, var(--surface-base) 40%, transparent)",
                   }}
                   onPointerDown={(e) => e.stopPropagation()}
                 >
@@ -868,7 +1036,7 @@ export default function SessionWorkbench() {
                   />
                   {/* Color swatches */}
                   <div className="flex gap-1.5 mb-2">
-                    {["#4ECDC4", "#FF9A3C", "#FF6B6B", "#A78BFA"].map((c) => (
+                    {["var(--accent-cool)", "var(--accent-warm)", "var(--formation-pink)", "var(--formation-purple)"].map((c) => (
                       <button
                         key={c}
                         onClick={() => {
@@ -914,7 +1082,7 @@ export default function SessionWorkbench() {
                   {loopOfflineError && (
                     <div
                       className="mb-2 px-2 py-1.5 rounded-lg flex items-center gap-2"
-                      style={{ backgroundColor: "rgba(255, 107, 53, 0.1)", border: "1px solid rgba(255, 107, 53, 0.3)" }}
+                      style={{ backgroundColor: "color-mix(in srgb, var(--accent-warm) 10%, transparent)", border: "1px solid color-mix(in srgb, var(--accent-warm) 30%, transparent)" }}
                     >
                       <WifiOff className="w-3.5 h-3.5" style={{ color: "var(--accent-warm)" }} />
                       <span style={{ fontFamily: "var(--font-body)", fontSize: "11px", color: "var(--accent-warm)" }}>
@@ -939,10 +1107,18 @@ export default function SessionWorkbench() {
                           });
                           setDraftLoop(null);
                         } else {
+                          const edited = loopEdits[loopPopover.loopId];
                           await updateLoop(loopPopover.loopId, {
                             name: loopPopover.name,
                             repeatCount: loopPopover.repeatCount,
                             color: loopPopover.color,
+                            ...(edited && { startTime: edited.startTime, endTime: edited.endTime }),
+                          });
+                          // Clear the local edits for this loop after persisting
+                          setLoopEdits(prev => {
+                            const next = { ...prev };
+                            delete next[loopPopover.loopId];
+                            return next;
                           });
                         }
                       } catch (err) {
@@ -1147,9 +1323,9 @@ export default function SessionWorkbench() {
                     setShareOpen(true);
                   }}
                   className="absolute top-1.5 right-1.5 w-6 h-6 rounded-md flex items-center justify-center"
-                  style={{ backgroundColor: "rgba(0,0,0,0.45)" }}
+                  style={{ backgroundColor: "color-mix(in srgb, var(--surface-base) 45%, transparent)" }}
                 >
-                  <Share2 className="w-3 h-3" style={{ color: "rgba(255,255,255,0.8)" }} />
+                  <Share2 className="w-3 h-3" style={{ color: "color-mix(in srgb, var(--text-primary) 80%, transparent)" }} />
                 </button>
                 <div className="p-2">
                   <div 
@@ -1266,13 +1442,18 @@ export default function SessionWorkbench() {
                     return (
                       <div
                         key={n.id}
-                        className="px-3 py-2 rounded-lg"
+                        className="px-3 py-2 rounded-lg cursor-pointer transition-opacity hover:opacity-90"
                         style={{ backgroundColor: "var(--surface-raised)", border: "1px solid var(--border-subtle)" }}
+                        onClick={() => {
+                          const el = audioRef.current;
+                          if (el) el.currentTime = n.timecode;
+                        }}
                       >
                         <div className="flex items-center justify-between">
                           {/* Timecode chip — seeks music */}
                           <button
-                            onClick={() => {
+                            onClick={(e) => {
+                              e.stopPropagation();
                               const el = audioRef.current;
                               if (el) el.currentTime = n.timecode;
                             }}
@@ -1284,23 +1465,39 @@ export default function SessionWorkbench() {
                             </span>
                           </button>
 
-                          {/* Voice memo toggle */}
-                          {n.audioUrl && (
+                          {/* Voice memo collapsed waveform (tap target) */}
+                          {n.audioUrl && !isVoicePlaying && (
                             <button
-                              onClick={() => handleVoiceNotePlay(n.id, n.audioUrl!)}
-                              className="flex items-center gap-1.5 px-2 py-1 rounded-full"
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                handleVoiceNotePlay(n.id, n.audioUrl!);
+                              }}
+                              className="flex items-center gap-2 px-2 py-1 rounded-full"
                               style={{
-                                backgroundColor: isVoicePlaying ? "rgba(10,207,197,0.15)" : "var(--surface-overlay)",
-                                border: `1px solid ${isVoicePlaying ? "var(--accent-cool)" : "var(--border-subtle)"}`,
+                                backgroundColor: "var(--surface-overlay)",
+                                border: "1px solid var(--border-subtle)",
                               }}
                             >
-                              {isVoicePlaying ? (
-                                <Pause className="w-3 h-3" style={{ color: "var(--accent-cool)" }} />
-                              ) : (
-                                <Play className="w-3 h-3" style={{ color: "var(--text-secondary)" }} fill="currentColor" />
-                              )}
-                              <span style={{ fontFamily: "var(--font-body)", fontSize: "11px", color: isVoicePlaying ? "var(--accent-cool)" : "var(--text-secondary)" }}>
-                                {isVoicePlaying ? "playing" : "memo"}
+                              <Play className="w-3 h-3" style={{ color: "var(--text-secondary)" }} fill="currentColor" />
+                              <div className="flex items-center gap-0.5">
+                                {Array.from({ length: 12 }).map((_, i) => {
+                                  const h = 4 + Math.abs(Math.sin(i * 0.6)) * 8;
+                                  return (
+                                    <div
+                                      key={i}
+                                      className="rounded-sm"
+                                      style={{
+                                        width: "2px",
+                                        height: `${h}px`,
+                                        backgroundColor: "var(--accent-warm)",
+                                        opacity: 0.6,
+                                      }}
+                                    />
+                                  );
+                                })}
+                              </div>
+                              <span style={{ fontFamily: "var(--font-mono)", fontSize: "10px", color: "var(--text-disabled)" }}>
+                                memo
                               </span>
                             </button>
                           )}
@@ -1313,27 +1510,16 @@ export default function SessionWorkbench() {
                           </div>
                         )}
 
-                        {/* Expanded voice player when playing */}
-                        {isVoicePlaying && (
-                          <div className="mt-2 flex items-center gap-2">
-                            <div className="flex items-center gap-0.5 flex-1">
-                              {Array.from({ length: 20 }).map((_, i) => {
-                                const h = 30 + Math.abs(Math.sin(i * 0.5)) * 50;
-                                return (
-                                  <div
-                                    key={i}
-                                    className="flex-1 rounded-sm"
-                                    style={{
-                                      height: `${h}%`,
-                                      maxHeight: "16px",
-                                      backgroundColor: "var(--accent-cool)",
-                                      opacity: 0.7,
-                                      minWidth: "2px",
-                                    }}
-                                  />
-                                );
-                              })}
-                            </div>
+                        {/* Expanded voice mini player when playing */}
+                        {isVoicePlaying && n.audioUrl && (
+                          <div onClick={(e) => e.stopPropagation()}>
+                            <VoiceMiniPlayer
+                              isPlaying={true}
+                              currentTime={voiceMemoCurrentTime}
+                              duration={voiceMemoDuration}
+                              onPlayPause={() => handleVoiceNotePlay(n.id, n.audioUrl!)}
+                              onSeek={handleVoiceMemoSeek}
+                            />
                           </div>
                         )}
                       </div>
@@ -1490,7 +1676,7 @@ export default function SessionWorkbench() {
         <div
           className="fixed bottom-28 left-1/2 -translate-x-1/2 px-5 py-2.5 rounded-full pointer-events-none"
           style={{
-            backgroundColor: "rgba(20,20,20,0.92)",
+            backgroundColor: "color-mix(in srgb, var(--surface-base) 92%, transparent)",
             border: "1px solid var(--border-subtle)",
             zIndex: 60,
           }}
