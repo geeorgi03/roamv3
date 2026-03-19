@@ -69,6 +69,7 @@ export default function SessionWorkbench() {
 
   // Voice note inline playback
   const [playingNoteId, setPlayingNoteId] = useState<string | null>(null);
+  const [voiceMemoIsPlaying, setVoiceMemoIsPlaying] = useState(false);
   const voiceMemoRef = useRef<HTMLAudioElement | null>(null);
   const musicWasPlayingBeforeMemo = useRef<boolean>(false);
   const [voiceMemoCurrentTime, setVoiceMemoCurrentTime] = useState(0);
@@ -76,6 +77,8 @@ export default function SessionWorkbench() {
 
   // Focused text note state (for expanding inline from timeline dot tap)
   const [focusedTextNoteId, setFocusedTextNoteId] = useState<string | null>(null);
+
+  const [activeLoopId, setActiveLoopId] = useState<string | null>(null);
 
   // Loop inline popover
   const [loopPopover, setLoopPopover] = useState<{
@@ -180,12 +183,24 @@ export default function SessionWorkbench() {
         voiceMemoRef.current.src = "";
       }
       setPlayingNoteId(null);
+      setVoiceMemoIsPlaying(false);
       if (musicWasPlayingBeforeMemo.current) {
         audioRef.current?.play().catch(() => {});
       }
       musicWasPlayingBeforeMemo.current = false;
     }
   }, [activeTab, playingNoteId]);
+
+  useEffect(() => {
+    if (loops.length === 0) {
+      if (activeLoopId !== null) setActiveLoopId(null);
+      return;
+    }
+    const stillExists = activeLoopId ? loops.some((l) => l.id === activeLoopId) : false;
+    if (!activeLoopId || !stillExists) {
+      setActiveLoopId(loops[0].id);
+    }
+  }, [activeLoopId, loops]);
 
   // Handle quick tag submit
   const handleQuickTagSubmit = async (data: { type: string; feel?: string }) => {
@@ -264,16 +279,15 @@ export default function SessionWorkbench() {
     }
   };
 
-  const handleVoiceNotePlay = (noteId: string, audioUrl: string) => {
+  const handleVoiceNotePlay = (noteId: string, audioUrl: string, opts?: { switchingFromAnotherMemo?: boolean }) => {
     if (playingNoteId === noteId) {
-      voiceMemoRef.current?.pause();
-      setPlayingNoteId(null);
-      setVoiceMemoCurrentTime(0);
-      setVoiceMemoDuration(0);
-      if (musicWasPlayingBeforeMemo.current) {
-        audioRef.current?.play().catch(() => {});
+      if (voiceMemoRef.current?.paused) {
+        voiceMemoRef.current.play().catch(() => {});
+        setVoiceMemoIsPlaying(true);
+      } else {
+        voiceMemoRef.current?.pause();
+        setVoiceMemoIsPlaying(false);
       }
-      musicWasPlayingBeforeMemo.current = false;
       return;
     }
     // Stop any existing voice memo
@@ -281,12 +295,13 @@ export default function SessionWorkbench() {
       voiceMemoRef.current.pause();
       voiceMemoRef.current.src = "";
     }
-    // Reset scrub bar state
+    setVoiceMemoIsPlaying(false);
+    // Reset scrub bar state only when starting a new memo, not when pausing
     setVoiceMemoCurrentTime(0);
     setVoiceMemoDuration(0);
     // Only capture music state when transitioning from no memo to an active memo
     // Do not overwrite when switching between voice notes
-    if (playingNoteId === null) {
+    if (playingNoteId === null && !opts?.switchingFromAnotherMemo) {
       musicWasPlayingBeforeMemo.current = audioRef.current ? !audioRef.current.paused : false;
       // Pause music only when starting first memo
       audioRef.current?.pause();
@@ -296,8 +311,11 @@ export default function SessionWorkbench() {
     voiceMemoRef.current = audio;
     audio.ontimeupdate = () => setVoiceMemoCurrentTime(audio.currentTime);
     audio.onloadedmetadata = () => setVoiceMemoDuration(audio.duration);
+    audio.onplay = () => setVoiceMemoIsPlaying(true);
+    audio.onpause = () => setVoiceMemoIsPlaying(false);
     audio.onended = () => {
       setPlayingNoteId(null);
+      setVoiceMemoIsPlaying(false);
       setVoiceMemoCurrentTime(0);
       setVoiceMemoDuration(0);
       if (musicWasPlayingBeforeMemo.current) {
@@ -307,6 +325,7 @@ export default function SessionWorkbench() {
     };
     audio.play().catch(() => {});
     setPlayingNoteId(noteId);
+    setVoiceMemoIsPlaying(true);
   };
 
   const handleVoiceMemoSeek = (time: number) => {
@@ -373,6 +392,8 @@ export default function SessionWorkbench() {
   const workspaceClips = useMemo(() => {
     return clips.filter((c) => (activeSection ? c.section === activeSection : true));
   }, [clips, activeSection]);
+
+  const shareClips = useMemo(() => clips, [clips]);
 
   const ideaClips = useMemo(() => clips.filter((c) => c.type === "idea"), [clips]);
   const sortedNotes = useMemo(() => [...notes].sort((a, b) => a.timecode - b.timecode), [notes]);
@@ -670,7 +691,15 @@ export default function SessionWorkbench() {
         >
           <div 
             className="w-9 h-full flex flex-col items-center justify-center flex-shrink-0"
-            style={{ backgroundColor: 'var(--surface-raised)' }}
+            style={{ 
+              backgroundColor: 'var(--surface-raised)',
+              opacity: activeLoopId ? 1 : 0.5,
+              cursor: activeLoopId ? "pointer" : "not-allowed",
+            }}
+            onClick={() => {
+              if (!activeLoopId) return;
+              navigate(`/session/${sessionId}/repetition/${activeLoopId}`);
+            }}
           >
             <Repeat className="w-4 h-4" style={{ color: 'var(--text-secondary)' }} />
           </div>
@@ -941,6 +970,7 @@ export default function SessionWorkbench() {
                   <button
                     onClick={(e) => {
                       e.stopPropagation();
+                      setActiveLoopId(loop.id);
                       setLoopPopover({
                         loopId: loop.id,
                         name: loop.name,
@@ -1203,6 +1233,45 @@ export default function SessionWorkbench() {
           </button>
         </div>
         
+        {/* Scrub bar */}
+        <div className="flex-1 mx-4">
+          <div className="relative w-full h-2 bg-gray-200 rounded-full">
+            <div 
+              className="absolute top-0 left-0 h-2 rounded-full transition-all"
+              style={{
+                width: `${playheadPct}%`,
+                backgroundColor: 'var(--accent-primary)'
+              }}
+            />
+            <input
+              type="range"
+              min="0"
+              max={duration || 100}
+              value={currentTime}
+              onChange={(e) => {
+                const el = audioRef.current;
+                if (!el) return;
+                el.currentTime = Number(e.target.value);
+                setCurrentTime(Number(e.target.value));
+              }}
+              className="absolute top-0 left-0 w-full h-2 opacity-0 cursor-pointer"
+              style={{
+                appearance: 'none',
+                background: 'transparent',
+                outline: 'none'
+              }}
+            />
+          </div>
+          <div className="flex justify-between mt-1">
+            <span style={{ fontFamily: "var(--font-mono)", fontSize: "10px", color: "var(--text-secondary)" }}>
+              {formatTime(currentTime)}
+            </span>
+            <span style={{ fontFamily: "var(--font-mono)", fontSize: "10px", color: "var(--text-secondary)" }}>
+              {formatTime(duration)}
+            </span>
+          </div>
+        </div>
+        
         <button
           className="px-3 py-1 rounded-full"
           onClick={() => {
@@ -1459,9 +1528,31 @@ export default function SessionWorkbench() {
                             : "1px solid var(--border-subtle)",
                         }}
                         onClick={() => {
-                          if (isTextNote) {
-                            setFocusedTextNoteId(isFocusedTextNote ? null : n.id);
+                          const switchingFromOtherMemo = playingNoteId !== null && playingNoteId !== n.id;
+                          if (switchingFromOtherMemo) {
+                            if (voiceMemoRef.current) {
+                              voiceMemoRef.current.pause();
+                              voiceMemoRef.current.src = "";
+                            }
+                            setPlayingNoteId(null);
+                            setVoiceMemoIsPlaying(false);
+                            setVoiceMemoCurrentTime(0);
+                            setVoiceMemoDuration(0);
+
+                            if (isTextNote) {
+                              if (musicWasPlayingBeforeMemo.current) {
+                                audioRef.current?.play().catch(() => {});
+                              }
+                              musicWasPlayingBeforeMemo.current = false;
+                            }
                           }
+
+                          if (n.audioUrl) {
+                            handleVoiceNotePlay(n.id, n.audioUrl, { switchingFromAnotherMemo: switchingFromOtherMemo });
+                            return;
+                          }
+
+                          setFocusedTextNoteId(isFocusedTextNote ? null : n.id);
                           const el = audioRef.current;
                           if (el) el.currentTime = n.timecode;
                         }}
@@ -1483,7 +1574,7 @@ export default function SessionWorkbench() {
                           </button>
 
                           {/* Voice memo collapsed waveform (tap target) */}
-                          {n.audioUrl && !isVoicePlaying && (
+                          {n.audioUrl && playingNoteId !== n.id && (
                             <button
                               onClick={(e) => {
                                 e.stopPropagation();
@@ -1601,10 +1692,10 @@ export default function SessionWorkbench() {
                         )}
 
                         {/* Expanded voice mini player when playing */}
-                        {isVoicePlaying && n.audioUrl && (
+                        {playingNoteId === n.id && n.audioUrl && (
                           <div onClick={(e) => e.stopPropagation()}>
                             <VoiceMiniPlayer
-                              isPlaying={true}
+                              isPlaying={voiceMemoIsPlaying}
                               currentTime={voiceMemoCurrentTime}
                               duration={voiceMemoDuration}
                               onPlayPause={() => handleVoiceNotePlay(n.id, n.audioUrl!)}
@@ -1623,31 +1714,77 @@ export default function SessionWorkbench() {
           {activeTab === "Share" && (
             <div>
               <div style={{ fontFamily: "var(--font-app-title)", fontWeight: 600, fontSize: "13px", color: "var(--text-primary)" }}>
-                Share Session
+                Share Clips
               </div>
-              <div className="mt-4">
-                <button
-                  onClick={() => setShareOpen(true)}
-                  className="w-full py-3 rounded-lg font-semibold transition-opacity hover:opacity-90"
-                  style={{
-                    backgroundColor: "var(--accent-primary)",
-                    color: "var(--surface-base)",
-                    fontSize: "14px",
-                    fontFamily: "var(--font-body)",
-                  }}
-                >
-                  Generate share link
-                </button>
-                <p
-                  className="mt-3 text-center"
-                  style={{
-                    fontFamily: "var(--font-body)",
-                    fontSize: "12px",
-                    color: "var(--text-disabled)",
-                  }}
-                >
-                  Create a link to share this session with others
-                </p>
+              <div className="mt-4 space-y-3">
+                {shareClips.length === 0 ? (
+                  <div style={{ fontFamily: "var(--font-body)", fontSize: "14px", color: "var(--text-disabled)", textAlign: "center", padding: "20px" }}>
+                    No clips to share yet
+                  </div>
+                ) : (
+                  shareClips.map((clip) => {
+                    const typeColors: Record<string, string> = {
+                      idea: 'var(--accent-cool)',
+                      teaching: 'var(--accent-warm)',
+                      'full-run': 'var(--accent-primary)',
+                    };
+                    const tagColor = typeColors[clip.type] || 'var(--text-secondary)';
+                    const displayName = `${clip.type.charAt(0).toUpperCase() + clip.type.slice(1)} ${new Date(clip.createdAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}`;
+
+                    return (
+                      <div
+                        key={clip.id}
+                        className="flex items-center justify-between p-3 rounded-lg"
+                        style={{
+                          backgroundColor: "var(--surface-raised)",
+                          border: "1px solid var(--border-subtle)",
+                        }}
+                      >
+                        <div className="flex items-center gap-3">
+                          <div 
+                            className="w-10 h-10 rounded bg-gray-600 flex-shrink-0" 
+                            style={{ backgroundColor: tagColor }}
+                          />
+                          <div>
+                            <div style={{ 
+                              fontSize: '14px',
+                              color: 'var(--text-primary)',
+                              fontFamily: 'var(--font-body)'
+                            }}>
+                              {displayName}
+                            </div>
+                            <div 
+                              className="inline-block mt-1 px-2 py-0.5 rounded"
+                              style={{
+                                backgroundColor: `${tagColor}33`,
+                                color: tagColor,
+                                fontSize: '10px',
+                                fontFamily: 'var(--font-body)'
+                              }}
+                            >
+                              {clip.feel || clip.type}
+                            </div>
+                          </div>
+                        </div>
+                        <button
+                          onClick={() => {
+                            setShareClipId(clip.id);
+                            setShareOpen(true);
+                          }}
+                          className="px-3 py-2 rounded-lg font-medium transition-opacity hover:opacity-80"
+                          style={{
+                            backgroundColor: "var(--accent-primary)",
+                            color: "var(--surface-base)",
+                            fontSize: "13px",
+                            fontFamily: "var(--font-body)",
+                          }}
+                        >
+                          Share
+                        </button>
+                      </div>
+                    );
+                  })
+                )}
               </div>
             </div>
           )}

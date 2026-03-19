@@ -57,7 +57,7 @@ app.use(
   cors({
     origin: "*",
     allowHeaders: ["Content-Type", "Authorization"],
-    allowMethods: ["GET", "POST", "PUT", "DELETE", "OPTIONS"],
+    allowMethods: ["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
     exposeHeaders: ["Content-Length"],
     maxAge: 600,
   }),
@@ -764,13 +764,252 @@ app.get("/make-server-837ff822/share/:token", async (c) => {
       if (!clip) {
         return c.json({ error: 'Clip no longer exists' }, 404);
       }
-      return c.json({ type: 'clip', clip, sessionId: shareData.sessionId });
+      const normalizedClip =
+        clip && typeof clip === "object"
+          ? {
+              ...(clip as Record<string, unknown>),
+              videoUrl:
+                (clip as Record<string, unknown>).videoUrl ??
+                (clip as Record<string, unknown>).video_storage_path,
+              audioUrl:
+                (clip as Record<string, unknown>).audioUrl ??
+                (clip as Record<string, unknown>).audio_storage_path,
+              prompt: (clip as Record<string, unknown>).prompt,
+            }
+          : clip;
+      return c.json({ type: 'clip', clip: normalizedClip, sessionId: shareData.sessionId });
     }
     
     return c.json({ error: 'Invalid share type' }, 400);
   } catch (error) {
     console.log(`Error resolving share token: ${error}`);
     return c.json({ error: 'Failed to resolve share link' }, 500);
+  }
+});
+
+// POST /share/:token/response — submit viewer response (backward compatible)
+app.post("/make-server-837ff822/share/:token/response", async (c) => {
+  try {
+    const token = c.req.param('token');
+    const shareData = await kv.get(`share:token:${token}`);
+    if (!shareData) return c.json({ error: 'Share link not found' }, 404);
+
+    const { clipId } = shareData as any;
+    const body = await c.req.json();
+    
+    // Support both 'text' and 'response' for backward compatibility
+    const responseText = body.text || body.response;
+    if (!responseText?.trim()) return c.json({ error: 'Response text is required' }, 400);
+
+    const responseId = crypto.randomUUID();
+    const response = {
+      id: responseId,
+      clipId,
+      text: responseText.trim(),
+      createdAt: new Date().toISOString(),
+    };
+
+    await kv.set(`share:response:${clipId}:${responseId}`, response);
+    console.log(`Response saved for clip ${clipId}`);
+    return c.json({ success: true });
+  } catch (error) {
+    console.log(`Error saving response: ${error}`);
+    return c.json({ error: 'Failed to save response' }, 500);
+  }
+});
+
+// GET /sessions/:sessionId/clips/:clipId/responses — get all responses for a clip
+app.get("/make-server-837ff822/sessions/:sessionId/clips/:clipId/responses", async (c) => {
+  try {
+    const userId = await getAuthenticatedUserId(c.req.raw);
+    if (!userId) return c.json({ error: 'Unauthorized' }, 401);
+
+    const clipId = c.req.param('clipId');
+    const responses = await kv.getByPrefix(`share:response:${clipId}:`);
+    return c.json({ responses });
+  } catch (error) {
+    console.log(`Error fetching responses: ${error}`);
+    return c.json({ error: 'Failed to fetch responses' }, 500);
+  }
+});
+
+// ==================== INBOX ROUTES ====================
+
+type AnyRecord = Record<string, unknown>;
+
+function firstString(...vals: unknown[]): string | undefined {
+  for (const v of vals) {
+    if (typeof v === "string" && v.trim()) return v;
+  }
+  return undefined;
+}
+
+function firstNumber(...vals: unknown[]): number | undefined {
+  for (const v of vals) {
+    if (typeof v === "number" && Number.isFinite(v)) return v;
+  }
+  return undefined;
+}
+
+function normalizeInboxClip(raw: unknown): AnyRecord {
+  const obj: AnyRecord =
+    raw && typeof raw === "object" ? (raw as AnyRecord) : ({} as AnyRecord);
+
+  const id = firstString(obj.id) ?? crypto.randomUUID();
+  const userId = firstString(obj.userId, obj.user_id);
+  const sessionId =
+    firstString(obj.sessionId, obj.session_id) ??
+    (obj.sessionId === null || obj.session_id === null ? null : undefined) ??
+    null;
+
+  const label = firstString(obj.label);
+  const mediaType =
+    (firstString(obj.mediaType, obj.media_type) as "video" | "audio" | undefined) ??
+    (label === "Voice memo" ? "audio" : label ? "video" : undefined);
+
+  const videoUrl = firstString(obj.videoUrl, obj.video_storage_path);
+  const audioUrl = firstString(obj.audioUrl, obj.audio_storage_path);
+  const thumbnailUrl = firstString(obj.thumbnailUrl, obj.thumbnail_storage_path);
+
+  const durationMs = firstNumber(obj.duration_ms);
+  const durationSeconds =
+    firstNumber(obj.duration) ?? (durationMs != null ? durationMs / 1000 : undefined);
+
+  const createdAt =
+    firstString(obj.createdAt, obj.recorded_at, obj.created_at) ??
+    new Date().toISOString();
+
+  const recordedAt = firstString(obj.recorded_at, obj.recordedAt) ?? createdAt;
+
+  const normalized: AnyRecord = {
+    id,
+    userId,
+    user_id: userId,
+
+    sessionId,
+    session_id: sessionId,
+
+    mediaType,
+    media_type: mediaType,
+
+    label: label ?? (mediaType === "audio" ? "Voice memo" : "Video clip"),
+
+    videoUrl,
+    video_storage_path: videoUrl,
+
+    audioUrl,
+    audio_storage_path: audioUrl,
+
+    thumbnailUrl,
+    thumbnail_storage_path: thumbnailUrl,
+
+    duration: durationSeconds,
+    duration_ms: durationSeconds != null ? Math.round(durationSeconds * 1000) : undefined,
+
+    createdAt,
+    created_at: createdAt,
+    recorded_at: recordedAt,
+
+    // Preserve any existing section field if present (used by session consumers).
+    section: firstString(obj.section),
+  };
+
+  // Keep any additional caller-provided fields, but ensure our canonical fields win.
+  return { ...obj, ...normalized };
+}
+
+// GET /inbox — clips with no session assigned
+app.get("/make-server-837ff822/inbox", async (c) => {
+  try {
+    const userId = await getAuthenticatedUserId(c.req.raw);
+    if (!userId) return c.json({ error: 'Unauthorized' }, 401);
+
+    const clips = await kv.getByPrefix(`inbox:${userId}:`);
+    const normalized = (clips || []).map((clip) => normalizeInboxClip(clip));
+    return c.json({ clips: normalized });
+  } catch (error) {
+    console.log(`Error fetching inbox: ${error}`);
+    return c.json({ error: 'Failed to fetch inbox' }, 500);
+  }
+});
+
+// POST /inbox — save a clip to inbox (no session required)
+app.post("/make-server-837ff822/inbox", async (c) => {
+  try {
+    const userId = await getAuthenticatedUserId(c.req.raw);
+    if (!userId) return c.json({ error: 'Unauthorized' }, 401);
+
+    const clipData = await c.req.json();
+    const incoming = normalizeInboxClip(clipData);
+    const clipId = firstString(incoming.id) ?? crypto.randomUUID();
+
+    const clip = normalizeInboxClip({
+      ...incoming,
+      id: clipId,
+      sessionId: null,
+      session_id: null,
+      userId,
+      user_id: userId,
+    });
+
+    await kv.set(`inbox:${userId}:${clipId}`, clip);
+    console.log(`Inbox clip saved: ${clipId}`);
+    return c.json({ clip });
+  } catch (error) {
+    console.log(`Error saving inbox clip: ${error}`);
+    return c.json({ error: 'Failed to save clip' }, 500);
+  }
+});
+
+// PATCH /inbox/:clipId/assign — assign inbox clip to a session
+app.patch("/make-server-837ff822/inbox/:clipId/assign", async (c) => {
+  try {
+    const userId = await getAuthenticatedUserId(c.req.raw);
+    if (!userId) return c.json({ error: 'Unauthorized' }, 401);
+
+    const clipId = c.req.param('clipId');
+    const body = (await c.req.json()) as AnyRecord;
+    const sessionId = firstString(body.sessionId, body.session_id);
+    const section = firstString(body.section, body.sectionLabel, body.section_label);
+
+    if (!sessionId) return c.json({ error: 'sessionId is required' }, 400);
+
+    const clip = await kv.get(`inbox:${userId}:${clipId}`);
+    if (!clip) return c.json({ error: 'Clip not found in inbox' }, 404);
+
+    const normalized = normalizeInboxClip(clip);
+    const assignedClip = normalizeInboxClip({
+      ...normalized,
+      id: clipId,
+      userId,
+      user_id: userId,
+      sessionId,
+      session_id: sessionId,
+      section: section ?? normalized.section,
+    });
+    await kv.del(`inbox:${userId}:${clipId}`);
+    await kv.set(`clip:${userId}:${sessionId}:${clipId}`, assignedClip);
+
+    console.log(`Inbox clip ${clipId} assigned to session ${sessionId}`);
+    return c.json({ clip: assignedClip });
+  } catch (error) {
+    console.log(`Error assigning inbox clip: ${error}`);
+    return c.json({ error: 'Failed to assign clip' }, 500);
+  }
+});
+
+// DELETE /inbox/:clipId — delete an inbox clip
+app.delete("/make-server-837ff822/inbox/:clipId", async (c) => {
+  try {
+    const userId = await getAuthenticatedUserId(c.req.raw);
+    if (!userId) return c.json({ error: 'Unauthorized' }, 401);
+
+    const clipId = c.req.param('clipId');
+    await kv.del(`inbox:${userId}:${clipId}`);
+    return c.json({ success: true });
+  } catch (error) {
+    console.log(`Error deleting inbox clip: ${error}`);
+    return c.json({ error: 'Failed to delete clip' }, 500);
   }
 });
 

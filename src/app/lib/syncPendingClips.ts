@@ -1,0 +1,50 @@
+import { getPendingClips, removePendingClip, updatePendingClip, type PendingClip } from "./pendingQueue";
+
+type UploadFileFn = (blob: Blob, mediaType: "audio" | "video") => Promise<{ url: string }>;
+
+type SaveClipFn = (clipData: {
+  mediaType: "video" | "audio";
+  duration?: number;
+  createdAt: string;
+  videoUrl?: string;
+  audioUrl?: string;
+  thumbnailUrl?: string;
+}) => Promise<unknown>;
+
+function dataUrlToBlob(dataUrl: string): { blob: Blob; mimeType: string } {
+  const [header, base64] = dataUrl.split(",");
+  const mimeMatch = /data:([^;]+);base64/.exec(header || "");
+  const mimeType = mimeMatch?.[1] || "application/octet-stream";
+  const binary = atob(base64 || "");
+  const bytes = new Uint8Array(binary.length);
+  for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);
+  return { blob: new Blob([bytes], { type: mimeType }), mimeType };
+}
+
+export async function syncPendingClips(saveClip: SaveClipFn, uploadFile: UploadFileFn) {
+  const candidates = getPendingClips().filter((c) => c.status === "pending" || c.status === "failed");
+
+  for (const pending of candidates) {
+    try {
+      updatePendingClip(pending.tempId, { status: "syncing" });
+      const { blob } = dataUrlToBlob(pending.blobBase64);
+
+      const uploaded = await uploadFile(blob, pending.mediaType);
+      const clipData: Parameters<SaveClipFn>[0] = {
+        mediaType: pending.mediaType,
+        duration: pending.duration,
+        createdAt: pending.createdAt,
+        videoUrl: pending.mediaType === "video" ? uploaded.url : undefined,
+        audioUrl: pending.mediaType === "audio" ? uploaded.url : undefined,
+      };
+
+      await saveClip(clipData);
+      removePendingClip(pending.tempId);
+    } catch (e) {
+      const current: PendingClip | undefined = getPendingClips().find((c) => c.tempId === pending.tempId);
+      const retryCount = (current?.retryCount ?? pending.retryCount ?? 0) + 1;
+      updatePendingClip(pending.tempId, { status: "failed", retryCount });
+    }
+  }
+}
+

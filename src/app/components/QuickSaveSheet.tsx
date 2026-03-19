@@ -1,9 +1,11 @@
 import { useState } from "react";
-import { Check, Mic, Video, AlertCircle } from "lucide-react";
+import { Check, Mic, Video, AlertCircle, WifiOff } from "lucide-react";
 import { useNavigate } from "react-router";
 import { useSessions } from "../hooks/useSessions";
 import { useInbox } from "../hooks/useInbox";
 import { uploadFile } from "../../utils/supabase";
+import { useOnlineStatus } from "../hooks/useOnlineStatus";
+import { addPendingClip } from "../lib/pendingQueue";
 
 export interface CaptureResult {
   mediaType: "video" | "audio";
@@ -40,6 +42,15 @@ export default function QuickSaveSheet({ capture, onDismiss, fromCaptureFirst, t
   const [saving, setSaving] = useState(false);
   const [assignError, setAssignError] = useState<string | null>(null);
   const [assigning, setAssigning] = useState(false);
+  const online = useOnlineStatus();
+
+  const blobToDataUrl = (blob: Blob) =>
+    new Promise<{ dataUrl: string; mimeType: string }>((resolve, reject) => {
+      const reader = new FileReader();
+      reader.onload = () => resolve({ dataUrl: String(reader.result), mimeType: blob.type || "application/octet-stream" });
+      reader.onerror = () => reject(reader.error || new Error("Failed to read blob"));
+      reader.readAsDataURL(blob);
+    });
 
   // Save to inbox immediately (if not yet saved)
   const ensureSaved = async (): Promise<string> => {
@@ -48,23 +59,58 @@ export default function QuickSaveSheet({ capture, onDismiss, fromCaptureFirst, t
     try {
       let videoUrl: string | undefined;
       let audioUrl: string | undefined;
+      let offlineDataUrl: string | undefined;
+      let offlineMimeType: string | undefined;
+      
       if (capture?.blob) {
-        const uploaded = await uploadFile(capture.blob, capture.mediaType === "audio" ? "audio" : "video");
-        if (capture.mediaType === "audio") {
-          audioUrl = uploaded.url;
+        if (online) {
+          // Online: upload immediately
+          const uploaded = await uploadFile(capture.blob, capture.mediaType === "audio" ? "audio" : "video");
+          if (capture.mediaType === "audio") {
+            audioUrl = uploaded.url;
+          } else {
+            videoUrl = uploaded.url;
+          }
         } else {
-          videoUrl = uploaded.url;
+          const { dataUrl, mimeType } = await blobToDataUrl(capture.blob);
+          offlineDataUrl = dataUrl;
+          offlineMimeType = mimeType;
+          videoUrl = capture.mediaType === "video" ? dataUrl : undefined;
+          audioUrl = capture.mediaType === "audio" ? dataUrl : undefined;
         }
       }
-      const clip = await saveClip({
+
+      const clipData = {
         mediaType: capture?.mediaType || "video",
         duration: capture?.duration,
         createdAt: new Date().toISOString(),
         videoUrl,
         audioUrl,
-      });
-      setSavedClipId(clip.id);
-      return clip.id;
+      };
+
+      if (online) {
+        // Online: save directly
+        const clip = await saveClip(clipData);
+        setSavedClipId(clip.id);
+        return clip.id;
+      } else {
+        const tempId = `temp-${Date.now()}`;
+        if (capture?.blob) {
+          addPendingClip({
+            tempId,
+            mediaType: capture.mediaType,
+            duration: capture.duration,
+            createdAt: new Date().toISOString(),
+            blobBase64: offlineDataUrl || "",
+            blobMimeType: offlineMimeType || capture.blob.type || "application/octet-stream",
+            status: "pending",
+            retryCount: 0,
+          });
+        }
+        
+        setSavedClipId(tempId);
+        return tempId;
+      }
     } finally {
       setSaving(false);
     }
@@ -82,10 +128,16 @@ export default function QuickSaveSheet({ capture, onDismiss, fromCaptureFirst, t
 
   const handleNewSession = async () => {
     setAssignError(null);
+    if (!online) {
+      setAssignError("Internet required — connect to assign to a session");
+      return;
+    }
     setAssigning(true);
     try {
       const name = sessionName.trim();
-      const session = await createSession({
+      let session;
+      
+      session = await createSession({
         songName: name || "Untitled",
         artist: "",
         tempo: 120,
@@ -93,8 +145,10 @@ export default function QuickSaveSheet({ capture, onDismiss, fromCaptureFirst, t
         sections: [],
         mirrorEnabled: false,
       });
+      
       const clipId = await ensureSaved();
       await assignClip(clipId, session.id);
+      
       onDismiss();
       navigate(`/session/${session.id}`);
     } catch (err) {
@@ -105,10 +159,15 @@ export default function QuickSaveSheet({ capture, onDismiss, fromCaptureFirst, t
 
   const handleAssignToSession = async (sessionId: string) => {
     setAssignError(null);
+    if (!online) {
+      setAssignError("Internet required — connect to assign to a session");
+      return;
+    }
     setAssigning(true);
     try {
       const clipId = await ensureSaved();
       await assignClip(clipId, sessionId, targetSection);
+      
       onDismiss();
       const toastParam = targetSection ? `?toast=Added+to+${encodeURIComponent(targetSection)}` : "";
       navigate(`/session/${sessionId}${toastParam}`);
@@ -189,6 +248,16 @@ export default function QuickSaveSheet({ capture, onDismiss, fromCaptureFirst, t
                   </span>
                 )}
               </div>
+              
+              {/* Offline indicator */}
+              {!online && (
+                <div className="flex items-center gap-1.5 px-2 py-1 rounded-full" style={{ backgroundColor: "rgba(255, 107, 53, 0.1)" }}>
+                  <WifiOff className="w-3 h-3" style={{ color: "var(--accent-warm)" }} />
+                  <span style={{ fontFamily: "var(--font-body)", fontSize: "11px", color: "var(--accent-warm)" }}>
+                    Will sync when online
+                  </span>
+                </div>
+              )}
             </div>
 
             {/* Divider */}
@@ -266,6 +335,7 @@ export default function QuickSaveSheet({ capture, onDismiss, fromCaptureFirst, t
                   {/* + New session */}
                   <button
                     onClick={() => setState("new-session")}
+                    disabled={!online}
                     className="flex-1 h-12 rounded-xl flex items-center justify-center transition-opacity hover:opacity-80"
                     style={{
                       backgroundColor: "var(--surface-overlay)",
@@ -273,15 +343,24 @@ export default function QuickSaveSheet({ capture, onDismiss, fromCaptureFirst, t
                       fontFamily: "var(--font-body)",
                       fontSize: "14px",
                       color: "var(--text-primary)",
+                      opacity: !online ? 0.55 : 1,
                     }}
                   >
-                    + New session
+                    {!online ? (
+                      <span className="flex items-center gap-2">
+                        <WifiOff className="w-4 h-4" style={{ color: "var(--text-disabled)" }} />
+                        <span style={{ color: "var(--text-disabled)" }}>Internet required</span>
+                      </span>
+                    ) : (
+                      "+ New session"
+                    )}
                   </button>
 
                   {/* Existing → */}
                   {sessions.length > 0 && (
                     <button
                       onClick={() => setState("picker")}
+                      disabled={!online}
                       className="flex-1 h-12 rounded-xl flex items-center justify-center transition-opacity hover:opacity-80"
                       style={{
                         backgroundColor: "var(--accent-primary)",
@@ -289,9 +368,17 @@ export default function QuickSaveSheet({ capture, onDismiss, fromCaptureFirst, t
                         fontSize: "14px",
                         fontWeight: 600,
                         color: "var(--surface-base)",
+                        opacity: !online ? 0.55 : 1,
                       }}
                     >
-                      Existing →
+                      {!online ? (
+                        <span className="flex items-center gap-2">
+                          <WifiOff className="w-4 h-4" style={{ color: "rgba(255,255,255,0.75)" }} />
+                          <span style={{ color: "rgba(255,255,255,0.75)" }}>Internet required</span>
+                        </span>
+                      ) : (
+                        "Existing →"
+                      )}
                     </button>
                   )}
                 </>

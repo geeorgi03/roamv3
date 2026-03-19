@@ -1,23 +1,9 @@
 import { useState, useEffect, useRef } from "react";
-import { ArrowLeft, Mic, Video, Play, ArrowRight, Trash2, Inbox, WifiOff, AlertCircle } from "lucide-react";
+import { ArrowLeft, Mic, Video, Play, ArrowRight, Trash2, Inbox, WifiOff, AlertCircle, Loader2 } from "lucide-react";
 import { useNavigate, useSearchParams } from "react-router";
 import { useInbox, type InboxClip } from "../hooks/useInbox";
 import { useSessions } from "../hooks/useSessions";
-
-function useOnlineStatus() {
-  const [online, setOnline] = useState(typeof navigator !== "undefined" ? navigator.onLine : true);
-  useEffect(() => {
-    const handleOnline = () => setOnline(true);
-    const handleOffline = () => setOnline(false);
-    window.addEventListener("online", handleOnline);
-    window.addEventListener("offline", handleOffline);
-    return () => {
-      window.removeEventListener("online", handleOnline);
-      window.removeEventListener("offline", handleOffline);
-    };
-  }, []);
-  return online;
-}
+import { useOnlineStatus } from "../hooks/useOnlineStatus";
 
 type PendingDelete = {
   clipId: string;
@@ -144,7 +130,7 @@ export default function InboxScreen() {
   const [searchParams] = useSearchParams();
   const targetSessionId = searchParams.get("sessionId");
   const targetSection = searchParams.get("section");
-  const { clips, loading, error, staleClips, assignClip, deleteClip, refresh } = useInbox();
+  const { clips, loading, error, staleClips, assignClip, deleteClip, refresh, syncPending } = useInbox();
   const { sessions } = useSessions();
   const [assigningClip, setAssigningClip] = useState<InboxClip | null>(null);
   const [deletingId, setDeletingId] = useState<string | null>(null);
@@ -156,6 +142,7 @@ export default function InboxScreen() {
   const [assignError, setAssignError] = useState<string | null>(null);
   const [assignErrorClipId, setAssignErrorClipId] = useState<string | null>(null);
   const [assigning, setAssigning] = useState(false);
+  const [syncingNow, setSyncingNow] = useState(false);
 
   useEffect(() => {
     return () => {
@@ -224,6 +211,7 @@ export default function InboxScreen() {
   };
 
   const visibleClips = clips.filter((c) => c.id !== pendingDelete?.clipId);
+  const hasClips = visibleClips.length > 0 || Boolean(pendingDelete);
 
   const handleAssign = async (clipId: string, sessionId: string) => {
     if (!online) {
@@ -316,11 +304,11 @@ export default function InboxScreen() {
       )}
 
       {/* Content */}
-      {loading ? (
+      {loading && !hasClips ? (
         <div className="flex-1 flex items-center justify-center">
           <p style={{ fontFamily: "var(--font-body)", fontSize: "13px", color: "var(--text-disabled)" }}>Loading…</p>
         </div>
-      ) : error ? (
+      ) : !hasClips && error ? (
         <div className="flex-1 flex flex-col items-center justify-center gap-3 px-8">
           <p style={{ fontFamily: "var(--font-body)", fontSize: "14px", color: "var(--accent-warm)", textAlign: "center" }}>
             {error}
@@ -368,8 +356,39 @@ export default function InboxScreen() {
         </div>
       ) : (
         <div className="flex-1 overflow-auto pt-2 pb-8">
+          {/* Non-blocking error banner */}
+          {error && (
+            <div
+              className="mx-4 mb-3 px-4 py-3 rounded-xl flex items-start justify-between gap-3"
+              style={{
+                backgroundColor: "rgba(255, 107, 53, 0.08)",
+                border: "1px solid rgba(255, 107, 53, 0.25)",
+              }}
+            >
+              <div className="flex items-start gap-2">
+                <AlertCircle className="w-4 h-4 mt-0.5 flex-shrink-0" style={{ color: "var(--accent-warm)" }} />
+                <p style={{ fontFamily: "var(--font-body)", fontSize: "13px", color: "var(--accent-warm)", lineHeight: "1.4" }}>
+                  {error}
+                </p>
+              </div>
+              <button
+                onClick={() => refresh()}
+                className="px-3 py-1.5 rounded-lg flex-shrink-0"
+                style={{
+                  backgroundColor: "var(--surface-raised)",
+                  border: "1px solid var(--border-subtle)",
+                  fontFamily: "var(--font-body)",
+                  fontSize: "12px",
+                  color: "var(--accent-primary)",
+                }}
+              >
+                Retry
+              </button>
+            </div>
+          )}
           {visibleClips.map((clip) => {
             const stale = isOlderThan48h(clip.createdAt);
+            const isPending = Boolean(clip.pending);
             return (
               <div
                 key={clip.id}
@@ -412,9 +431,75 @@ export default function InboxScreen() {
                       )}
                     </div>
                     <div className="flex items-center gap-2 mt-0.5">
-                      <span style={{ fontFamily: "var(--font-mono)", fontSize: "11px", color: "var(--text-disabled)" }}>
-                        {formatDate(clip.createdAt)}
-                      </span>
+                      {isPending ? (
+                        <span
+                          className="px-2 py-0.5 rounded-full inline-flex items-center gap-1.5"
+                          style={{
+                            backgroundColor:
+                              clip.pendingStatus === "failed"
+                                ? "rgba(255, 159, 10, 0.14)"
+                                : clip.pendingStatus === "syncing"
+                                  ? "rgba(120, 120, 120, 0.15)"
+                                  : "rgba(53, 200, 241, 0.14)",
+                            border:
+                              clip.pendingStatus === "failed"
+                                ? "1px solid rgba(255, 159, 10, 0.28)"
+                                : clip.pendingStatus === "syncing"
+                                  ? "1px solid rgba(120, 120, 120, 0.25)"
+                                  : "1px solid rgba(53, 200, 241, 0.28)",
+                            fontFamily: "var(--font-body)",
+                            fontSize: "11px",
+                            color:
+                              clip.pendingStatus === "failed"
+                                ? "var(--accent-warm)"
+                                : clip.pendingStatus === "syncing"
+                                  ? "var(--text-secondary)"
+                                  : "var(--accent-cool)",
+                          }}
+                        >
+                          {clip.pendingStatus === "syncing" ? (
+                            <>
+                              <Loader2 className="w-3 h-3 animate-spin" />
+                              <span>Syncing…</span>
+                            </>
+                          ) : clip.pendingStatus === "failed" ? (
+                            <>
+                              <AlertCircle className="w-3 h-3" />
+                              <span>Sync failed</span>
+                              <button
+                                onClick={async () => {
+                                  setSyncingNow(true);
+                                  try {
+                                    await syncPending();
+                                  } finally {
+                                    setSyncingNow(false);
+                                  }
+                                }}
+                                disabled={syncingNow || !online}
+                                className="ml-1"
+                                style={{
+                                  fontFamily: "var(--font-body)",
+                                  fontSize: "11px",
+                                  color: "var(--accent-primary)",
+                                  fontWeight: 600,
+                                  opacity: syncingNow || !online ? 0.6 : 1,
+                                }}
+                              >
+                                Retry
+                              </button>
+                            </>
+                          ) : (
+                            <>
+                              <WifiOff className="w-3 h-3" />
+                              <span>Pending sync</span>
+                            </>
+                          )}
+                        </span>
+                      ) : (
+                        <span style={{ fontFamily: "var(--font-mono)", fontSize: "11px", color: "var(--text-disabled)" }}>
+                          {formatDate(clip.createdAt)}
+                        </span>
+                      )}
                       {clip.duration && (
                         <>
                           <span style={{ color: "var(--text-disabled)", fontSize: "10px" }}>·</span>
@@ -429,7 +514,22 @@ export default function InboxScreen() {
                   {/* Actions */}
                   <div className="flex items-center gap-1">
                     {/* Play */}
-                    <button className="w-8 h-8 rounded-lg flex items-center justify-center" style={{ backgroundColor: "var(--surface-overlay)" }}>
+                    <button 
+                      onClick={() => {
+                        if (clip.videoUrl) {
+                          // Simple video playback - in a real app, this would open a video player
+                          window.open(clip.videoUrl, '_blank');
+                        } else if (clip.audioUrl) {
+                          // Simple audio playback
+                          const audio = new Audio(clip.audioUrl);
+                          audio.play().catch(err => console.error('Audio playback failed:', err));
+                        } else {
+                          console.warn('No media URL available for clip');
+                        }
+                      }}
+                      className="w-8 h-8 rounded-lg flex items-center justify-center" 
+                      style={{ backgroundColor: "var(--surface-overlay)" }}
+                    >
                       <Play className="w-3.5 h-3.5" style={{ color: "var(--text-secondary)" }} fill="currentColor" />
                     </button>
 
@@ -437,15 +537,15 @@ export default function InboxScreen() {
                     {targetSessionId && targetSection ? (
                       <button
                         onClick={() => handleAssign(clip.id, targetSessionId)}
-                        disabled={!online}
+                        disabled={!online || isPending}
                         className="h-8 px-2 rounded-lg flex items-center gap-1"
                         style={{
-                          backgroundColor: online ? "rgba(200,241,53,0.15)" : "var(--surface-overlay)",
-                          border: `1px solid ${online ? "var(--accent-primary)" : "var(--border-subtle)"}`,
-                          opacity: online ? 1 : 0.5,
+                          backgroundColor: online && !isPending ? "rgba(200,241,53,0.15)" : "var(--surface-overlay)",
+                          border: `1px solid ${online && !isPending ? "var(--accent-primary)" : "var(--border-subtle)"}`,
+                          opacity: online && !isPending ? 1 : 0.5,
                         }}
                       >
-                        {!online && <WifiOff className="w-3 h-3" style={{ color: "var(--text-disabled)" }} />}
+                        {(!online || isPending) && <WifiOff className="w-3 h-3" style={{ color: "var(--text-disabled)" }} />}
                         <span style={{ fontSize: "11px", color: online ? "var(--accent-primary)" : "var(--text-disabled)", fontFamily: "var(--font-body)", whiteSpace: "nowrap" }}>
                           Add to {targetSection}
                         </span>
@@ -453,16 +553,16 @@ export default function InboxScreen() {
                     ) : (
                       <button
                         onClick={() => {
-                          if (online) {
+                          if (online && !isPending) {
                             setAssigningClip(clip);
                           } else {
-                            showToast("You're offline — assign when back online");
+                            showToast(isPending ? "Sync this clip before assigning" : "You're offline — assign when back online");
                           }
                         }}
                         className="w-8 h-8 rounded-lg flex items-center justify-center"
-                        style={{ backgroundColor: "var(--surface-overlay)", opacity: online ? 1 : 0.5 }}
+                        style={{ backgroundColor: "var(--surface-overlay)", opacity: online && !isPending ? 1 : 0.5 }}
                       >
-                        {online ? (
+                        {online && !isPending ? (
                           <ArrowRight className="w-3.5 h-3.5" style={{ color: "var(--accent-primary)" }} />
                         ) : (
                           <WifiOff className="w-3.5 h-3.5" style={{ color: "var(--text-disabled)" }} />
@@ -472,9 +572,15 @@ export default function InboxScreen() {
 
                     {/* Delete */}
                     <button
-                      onClick={() => handleDelete(clip.id)}
+                      onClick={() => {
+                        if (isPending) {
+                          showToast("Can't delete until synced");
+                          return;
+                        }
+                        handleDelete(clip.id);
+                      }}
                       className="w-8 h-8 rounded-lg flex items-center justify-center"
-                      style={{ backgroundColor: "var(--surface-overlay)" }}
+                      style={{ backgroundColor: "var(--surface-overlay)", opacity: isPending ? 0.5 : 1 }}
                     >
                       <Trash2 className="w-3.5 h-3.5" style={{ color: "var(--text-disabled)" }} />
                     </button>
