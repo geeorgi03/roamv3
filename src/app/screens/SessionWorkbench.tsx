@@ -1,21 +1,8 @@
 import { ArrowLeft, Share2, MoreVertical, Music, Pin, Film, Repeat, Play, Pause, Rewind, FastForward, Plus, Lightbulb, FileText, PlayCircle, Upload, WifiOff } from "lucide-react";
 import { useNavigate, useParams, useSearchParams } from "react-router";
 import { useEffect, useMemo, useRef, useState } from "react";
-
-function useOnlineStatus() {
-  const [online, setOnline] = useState(typeof navigator !== "undefined" ? navigator.onLine : true);
-  useEffect(() => {
-    const handleOnline = () => setOnline(true);
-    const handleOffline = () => setOnline(false);
-    window.addEventListener("online", handleOnline);
-    window.addEventListener("offline", handleOffline);
-    return () => {
-      window.removeEventListener("online", handleOnline);
-      window.removeEventListener("offline", handleOffline);
-    };
-  }, []);
-  return online;
-}
+import { flushSync } from "react-dom";
+import { useOnlineStatus } from "../hooks/useOnlineStatus";
 import QuickTagSheet from "../components/QuickTagSheet";
 import MusicAttachmentSheet from "../components/MusicAttachmentSheet";
 import WaveformLoadingTrack from "../components/WaveformLoadingTrack";
@@ -64,6 +51,8 @@ export default function SessionWorkbench() {
 
   const [shareOpen, setShareOpen] = useState(false);
   const [shareClipId, setShareClipId] = useState<string | null>(null);
+  const [shareClipLabel, setShareClipLabel] = useState<string | null>(null);
+  const [shareClipDuration, setShareClipDuration] = useState<string | null>(null);
 
   const [showAddClipSheet, setShowAddClipSheet] = useState(false);
 
@@ -325,7 +314,9 @@ export default function SessionWorkbench() {
     audio.onplay = () => setVoiceMemoIsPlaying(true);
     audio.onpause = () => setVoiceMemoIsPlaying(false);
     audio.onended = () => {
-      setPlayingNoteId(null);
+      flushSync(() => {
+        setPlayingNoteId(null);
+      });
       setVoiceMemoIsPlaying(false);
       setVoiceMemoCurrentTime(0);
       setVoiceMemoDuration(0);
@@ -714,7 +705,7 @@ export default function SessionWorkbench() {
               navigate(`/session/${sessionId}/repetition/${activeLoopId}`);
             }}
           >
-            <Repeat className="w-4 h-4" style={{ color: 'var(--text-secondary)' }} />
+            <Repeat className="w-4 h-4" style={{ color: activeLoopId ? 'var(--accent-primary)' : 'var(--text-secondary)' }} />
           </div>
           <div
             className="flex-1 relative h-full"
@@ -1248,7 +1239,7 @@ export default function SessionWorkbench() {
         
         {/* Scrub bar */}
         <div className="flex-1 mx-4">
-          <div className="relative w-full h-2 bg-gray-200 rounded-full">
+          <div className="relative w-full h-2 rounded-full" style={{ backgroundColor: "var(--surface-overlay)" }}>
             <div 
               className="absolute top-0 left-0 h-2 rounded-full transition-all"
               style={{
@@ -1412,6 +1403,8 @@ export default function SessionWorkbench() {
                       return;
                     }
                     setShareClipId(clip.id);
+                    setShareClipLabel(displayName);
+                    setShareClipDuration(null);
                     setShareOpen(true);
                   }}
                   className="absolute top-1.5 right-1.5 w-6 h-6 rounded-md flex items-center justify-center"
@@ -1592,7 +1585,7 @@ export default function SessionWorkbench() {
                           </button>
 
                           {/* Voice memo collapsed waveform (tap target) */}
-                          {n.audioUrl && (
+                          {n.audioUrl && playingNoteId !== n.id && (
                             <button
                               onClick={(e) => {
                                 e.stopPropagation();
@@ -1731,13 +1724,20 @@ export default function SessionWorkbench() {
 
           {activeTab === "Share" && (
             <div>
+              {/* Inline offline banner */}
+              {!online && (
+                <div className="flex items-center gap-2 px-3 py-2 rounded-lg mb-4" style={{ backgroundColor: "color-mix(in srgb, var(--accent-warm) 10%, transparent)", border: "1px solid color-mix(in srgb, var(--accent-warm) 30%, transparent)" }}>
+                  <WifiOff className="w-4 h-4 flex-shrink-0" style={{ color: 'var(--accent-warm)' }} />
+                  <span style={{ fontFamily: "var(--font-body)", fontSize: "12px", color: "var(--accent-warm)" }}>Internet required to share clips</span>
+                </div>
+              )}
               <div style={{ fontFamily: "var(--font-app-title)", fontWeight: 600, fontSize: "13px", color: "var(--text-primary)" }}>
                 Share Clips
               </div>
               <div className="mt-4 space-y-3">
                 {shareClips.length === 0 ? (
                   <div style={{ fontFamily: "var(--font-body)", fontSize: "14px", color: "var(--text-disabled)", textAlign: "center", padding: "20px" }}>
-                    No clips yet — record a clip to share it
+                    No clips yet — <button onClick={() => navigate(`/capture?sessionId=${sessionId}`)} style={{ color: "var(--accent-primary)", textDecoration: "none", fontFamily: "var(--font-body)", fontSize: "14px" }}>record a clip</button> to share it
                   </div>
                 ) : (
                   shareClips.map((clip) => {
@@ -1792,6 +1792,8 @@ export default function SessionWorkbench() {
                               return;
                             }
                             setShareClipId(clip.id);
+                            setShareClipLabel(displayName);
+                            setShareClipDuration(null);
                             setShareOpen(true);
                           }}
                           className="px-3 py-2 rounded-lg font-medium transition-opacity hover:opacity-80"
@@ -1902,8 +1904,10 @@ export default function SessionWorkbench() {
 
       <ShareSheet
         isOpen={shareOpen}
-        onClose={() => { setShareOpen(false); setShareClipId(null); }}
+        onClose={() => { setShareOpen(false); setShareClipId(null); setShareClipLabel(null); setShareClipDuration(null); }}
         clipId={shareClipId ?? undefined}
+        clipLabel={shareClipLabel ?? undefined}
+        clipDuration={shareClipDuration ?? undefined}
         sessionId={sessionId}
       />
 
