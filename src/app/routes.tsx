@@ -35,6 +35,10 @@ export const router = createBrowserRouter([
     Component: RepetitionTool,
   },
   {
+    path: "/session/:id/repetition",
+    Component: RepetitionTool,
+  },
+  {
     path: "/session/:id/review",
     Component: ReviewMode,
   },

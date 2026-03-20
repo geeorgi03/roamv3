@@ -63,6 +63,7 @@ export default function SessionWorkbench() {
   const musicWasPlayingBeforeMemo = useRef<boolean>(false);
   const [voiceMemoCurrentTime, setVoiceMemoCurrentTime] = useState(0);
   const [voiceMemoDuration, setVoiceMemoDuration] = useState(0);
+  const [voiceMemoError, setVoiceMemoError] = useState<Record<string, boolean>>({});
 
   // Focused text note state (for expanding inline from timeline dot tap)
   const [focusedTextNoteId, setFocusedTextNoteId] = useState<string | null>(null);
@@ -313,6 +314,17 @@ export default function SessionWorkbench() {
     audio.onloadedmetadata = () => setVoiceMemoDuration(audio.duration);
     audio.onplay = () => setVoiceMemoIsPlaying(true);
     audio.onpause = () => setVoiceMemoIsPlaying(false);
+    audio.onerror = () => {
+      setVoiceMemoError(prev => ({ ...prev, [noteId]: true }));
+      setPlayingNoteId(null);
+      setVoiceMemoIsPlaying(false);
+      setVoiceMemoCurrentTime(0);
+      setVoiceMemoDuration(0);
+      if (musicWasPlayingBeforeMemo.current) {
+        audioRef.current?.play().catch(() => {});
+      }
+      musicWasPlayingBeforeMemo.current = false;
+    };
     audio.onended = () => {
       flushSync(() => {
         setPlayingNoteId(null);
@@ -697,15 +709,18 @@ export default function SessionWorkbench() {
             className="w-9 h-full flex flex-col items-center justify-center flex-shrink-0"
             style={{ 
               backgroundColor: 'var(--surface-raised)',
-              opacity: activeLoopId ? 1 : 0.5,
-              cursor: activeLoopId ? "pointer" : "not-allowed",
+              opacity: (activeLoopId || loops.length === 0) ? 1 : 0.5,
+              cursor: (activeLoopId || loops.length === 0) ? "pointer" : "not-allowed",
             }}
             onClick={() => {
-              if (!activeLoopId) return;
-              navigate(`/session/${sessionId}/repetition/${activeLoopId}`);
+              if (activeLoopId) {
+                navigate(`/session/${sessionId}/repetition/${activeLoopId}`);
+              } else if (loops.length === 0) {
+                navigate(`/session/${sessionId}/repetition`);
+              }
             }}
           >
-            <Repeat className="w-4 h-4" style={{ color: activeLoopId ? 'var(--accent-primary)' : 'var(--text-secondary)' }} />
+            <Repeat className="w-4 h-4" style={{ color: (activeLoopId || loops.length === 0) ? 'var(--accent-primary)' : 'var(--text-secondary)' }} />
           </div>
           <div
             className="flex-1 relative h-full"
@@ -1539,6 +1554,11 @@ export default function SessionWorkbench() {
                             : "1px solid var(--border-subtle)",
                         }}
                         onClick={() => {
+                          // Guard: if this is an expanded voice note row, don't handle row-level clicks
+                          if (n.audioUrl && playingNoteId === n.id) {
+                            return;
+                          }
+                          
                           const switchingFromOtherMemo = playingNoteId !== null && playingNoteId !== n.id;
                           if (switchingFromOtherMemo) {
                             if (voiceMemoRef.current) {
@@ -1585,7 +1605,7 @@ export default function SessionWorkbench() {
                           </button>
 
                           {/* Voice memo collapsed waveform (tap target) */}
-                          {n.audioUrl && playingNoteId !== n.id && (
+                          {n.audioUrl && playingNoteId !== n.id && !voiceMemoError[n.id] && (
                             <button
                               onClick={(e) => {
                                 e.stopPropagation();
@@ -1619,6 +1639,21 @@ export default function SessionWorkbench() {
                                 memo
                               </span>
                             </button>
+                          )}
+
+                          {/* Voice memo error state */}
+                          {n.audioUrl && voiceMemoError[n.id] && (
+                            <div
+                              className="flex items-center gap-2 px-2 py-1 rounded-full"
+                              style={{
+                                backgroundColor: "color-mix(in srgb, var(--accent-warm) 10%, transparent)",
+                                border: "1px solid color-mix(in srgb, var(--accent-warm) 30%, transparent)",
+                              }}
+                            >
+                              <span style={{ fontFamily: "var(--font-body)", fontSize: "11px", color: "var(--accent-warm)" }}>
+                                Couldn't play
+                              </span>
+                            </div>
                           )}
 
                           {/* Focused text note indicator */}
@@ -1798,13 +1833,15 @@ export default function SessionWorkbench() {
                           }}
                           className="px-3 py-2 rounded-lg font-medium transition-opacity hover:opacity-80"
                           style={{
-                            backgroundColor: "var(--accent-primary)",
-                            color: "var(--surface-base)",
+                            backgroundColor: online ? "var(--accent-primary)" : "var(--surface-overlay)",
+                            color: online ? "var(--surface-base)" : "var(--text-disabled)",
                             fontSize: "13px",
                             fontFamily: "var(--font-body)",
+                            opacity: online ? 1 : 0.5,
+                            cursor: online ? "pointer" : "not-allowed",
                           }}
                         >
-                          Share
+                          {online ? "Share" : <><WifiOff className="w-3 h-3 inline mr-1" />Offline</>}
                         </button>
                       </div>
                     );
