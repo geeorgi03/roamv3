@@ -349,36 +349,7 @@ export default function SessionWorkbench() {
     }
   };
 
-  if (loading) {
-    return (
-      <div className="min-h-screen bg-[var(--surface-base)] flex items-center justify-center">
-        <div className="text-[var(--text-secondary)]">Loading session...</div>
-      </div>
-    );
-  }
 
-  if (error || !session) {
-    return (
-      <div className="min-h-screen bg-[var(--surface-base)] flex flex-col items-center justify-center gap-4">
-        <div className="text-[var(--text-secondary)]">
-          {error || "Session not found"}
-        </div>
-        <button
-          onClick={() => refresh()}
-          className="px-4 py-2 rounded-lg"
-          style={{
-            backgroundColor: "var(--surface-raised)",
-            border: "1px solid var(--border-subtle)",
-            fontFamily: "var(--font-body)",
-            fontSize: "13px",
-            color: "var(--accent-primary)",
-          }}
-        >
-          Retry
-        </button>
-      </div>
-    );
-  }
 
   const tabs = [
     { id: "Ideas", icon: Lightbulb, label: "Ideas" },
@@ -387,7 +358,7 @@ export default function SessionWorkbench() {
     { id: "Share", icon: Upload, label: "Share" },
   ];
 
-  const sections = session.sections;
+  const sections = session?.sections ?? [];
 
   const formatTime = (seconds: number) => {
     const mins = Math.floor(seconds / 60);
@@ -395,7 +366,7 @@ export default function SessionWorkbench() {
     return `${mins}:${secs.toString().padStart(2, '0')}`;
   };
 
-  const duration = session.duration || 0;
+  const duration = session?.duration ?? 0;
   const playheadPct = duration > 0 ? Math.min(100, Math.max(0, (currentTime / duration) * 100)) : 0;
 
   const activeSectionObj = useMemo(() => {
@@ -423,7 +394,35 @@ export default function SessionWorkbench() {
       className="min-h-screen flex flex-col"
       style={{ backgroundColor: 'var(--surface-base)' }}
     >
-      <audio ref={(n) => (audioRef.current = n)} src={session.musicUrl || ""} style={{ display: "none" }} />
+      <audio ref={(n) => (audioRef.current = n)} src={session?.musicUrl ?? ""} style={{ display: "none" }} />
+
+      {/* Inline Error Banner */}
+      {(error || (!loading && !session)) && (
+        <div 
+          className="px-4 py-3 flex items-center justify-between gap-4"
+          style={{ 
+            backgroundColor: 'var(--surface-raised)',
+            borderBottom: '1px solid var(--border-subtle)'
+          }}
+        >
+          <div className="text-[var(--text-secondary)]" style={{ fontFamily: 'var(--font-body)', fontSize: '13px' }}>
+            {error || "Session not found"}
+          </div>
+          <button
+            onClick={() => refresh()}
+            className="px-3 py-1.5 rounded-lg flex-shrink-0"
+            style={{
+              backgroundColor: "var(--surface-raised)",
+              border: "1px solid var(--border-subtle)",
+              fontFamily: "var(--font-body)",
+              fontSize: "13px",
+              color: "var(--accent-primary)",
+            }}
+          >
+            Retry
+          </button>
+        </div>
+      )}
 
       {/* Header */}
       <div 
@@ -441,7 +440,11 @@ export default function SessionWorkbench() {
             color: 'var(--text-primary)'
           }}
         >
-          {session.songName} — {session.artist}
+          {loading ? (
+            <div className="h-5 w-32 bg-[var(--surface-raised)] rounded animate-pulse" />
+          ) : (
+            `${session?.songName || ""} — ${session?.artist || ""}`
+          )}
         </div>
         <div className="flex items-center gap-3">
           <button onClick={() => {
@@ -454,6 +457,41 @@ export default function SessionWorkbench() {
           </button>
         </div>
       </div>
+
+      {/* Error/Not Found State - Non-interactive fallback body */}
+      {(error || (!loading && !session)) && (
+        <div className="flex-1 flex items-center justify-center p-8">
+          <div className="text-center max-w-sm">
+            <div 
+              className="mb-4"
+              style={{ 
+                fontFamily: 'var(--font-body)', 
+                fontSize: '16px',
+                color: 'var(--text-secondary)',
+                lineHeight: 1.5
+              }}
+            >
+              {error || "Session not found"}
+            </div>
+            <button
+              onClick={() => refresh()}
+              className="px-6 py-3 rounded-lg font-medium transition-opacity hover:opacity-80"
+              style={{
+                backgroundColor: "var(--accent-primary)",
+                color: "var(--surface-base)",
+                fontFamily: "var(--font-body)",
+                fontSize: "14px",
+              }}
+            >
+              Retry
+            </button>
+          </div>
+        </div>
+      )}
+
+      {/* Interactive Workbench Body - Only render when no error and session exists */}
+      {!error && (loading || session) && (
+        <>
 
       {/* Multi-track Timeline Zone */}
       <div 
@@ -481,7 +519,7 @@ export default function SessionWorkbench() {
         </div>
 
         {/* Track 1 - Waveform */}
-        {musicImporting ? (
+        {(loading || musicImporting) ? (
           <WaveformLoadingTrack isLoading={true} />
         ) : (
           <div 
@@ -498,7 +536,7 @@ export default function SessionWorkbench() {
             </div>
             <div className="flex-1 relative h-full overflow-hidden">
               {/* No music yet: show dashed "Add music" placeholder */}
-              {!session.musicUrl ? (
+              {!session?.musicUrl ? (
                 <button
                   onClick={() => setShowMusicAttachment(true)}
                   className="absolute inset-0 flex items-center justify-center"
@@ -835,6 +873,72 @@ export default function SessionWorkbench() {
               setLoopOfflineError(false);
             }}
           >
+            {/* Overlap zones computation */}
+            {useMemo(() => {
+              if (duration <= 0) return [];
+
+              // Collect all effective region boundaries
+              const regions: { id: string; startTime: number; endTime: number }[] = [];
+
+              // Add persisted loops with edits applied
+              loops.forEach((loop) => {
+                const edited = loopEdits[loop.id];
+                const startTime = edited?.startTime ?? loop.startTime;
+                const endTime = edited?.endTime ?? loop.endTime;
+                regions.push({ id: loop.id, startTime, endTime });
+              });
+
+              // Add draft loop if exists
+              if (draftLoop) {
+                regions.push({
+                  id: "__draft__",
+                  startTime: draftLoop.startTime,
+                  endTime: draftLoop.endTime,
+                });
+              }
+
+              // Add draft preview if exists and width > 0.5%
+              if (loopDraftPreview && loopDraftPreview.widthPct > 0.5) {
+                regions.push({
+                  id: "__preview__",
+                  startTime: loopDraftPreview.startTime,
+                  endTime: loopDraftPreview.endTime,
+                });
+              }
+
+              // Compute pairwise intersections
+              const overlapZones: { overlapStart: number; overlapEnd: number }[] = [];
+              
+              for (let i = 0; i < regions.length; i++) {
+                for (let j = i + 1; j < regions.length; j++) {
+                  const a = regions[i];
+                  const b = regions[j];
+                  const overlapStart = Math.max(a.startTime, b.startTime);
+                  const overlapEnd = Math.min(a.endTime, b.endTime);
+                  
+                  if (overlapEnd > overlapStart) {
+                    overlapZones.push({ overlapStart, overlapEnd });
+                  }
+                }
+              }
+
+              return overlapZones;
+            }, [loops, loopEdits, draftLoop, loopDraftPreview, duration]).map((zone, index) => (
+              <div
+                key={`overlap-${zone.overlapStart}-${zone.overlapEnd}`}
+                style={{
+                  position: "absolute",
+                  top: 0,
+                  bottom: 0,
+                  left: `${(zone.overlapStart / duration) * 100}%`,
+                  width: `${((zone.overlapEnd - zone.overlapStart) / duration) * 100}%`,
+                  background: "repeating-linear-gradient(45deg, rgba(255,255,255,0.12) 0px, rgba(255,255,255,0.12) 3px, transparent 3px, transparent 8px)",
+                  pointerEvents: "none",
+                  zIndex: 5,
+                }}
+              />
+            ))}
+
             {loops.length === 0 && !loopDraftPreview && !draftLoop ? (
               <div className="absolute inset-0 flex items-center px-4" style={{ fontFamily: "var(--font-body)", fontSize: "11px", color: "var(--text-disabled)" }}>
                 Drag to create a loop
@@ -1324,7 +1428,7 @@ export default function SessionWorkbench() {
             </span>
           )}
           <button
-            onClick={() => updateSession({ mirrorEnabled: !session.mirrorEnabled })}
+            onClick={() => updateSession({ mirrorEnabled: !session?.mirrorEnabled })}
             style={{ fontSize: '13px', color: 'var(--text-secondary)', fontFamily: 'var(--font-body)' }}
           >
             Mirror
@@ -2009,6 +2113,8 @@ export default function SessionWorkbench() {
             </span>
           </div>
         </div>
+      )}
+        </>
       )}
     </div>
   );

@@ -208,7 +208,7 @@ export default function QuickSaveSheet({ capture, onDismiss, fromCaptureFirst, t
   return (
     <>
       {/* Backdrop — tap to dismiss */}
-      <div className="fixed inset-0 z-40" style={{ backgroundColor: "rgba(0,0,0,0.5)" }} onClick={handleLater} />
+      <div className="fixed inset-0 z-40" style={{ backgroundColor: "rgba(0,0,0,0.5)" }} onClick={saveError ? undefined : handleLater} />
 
       {/* Sheet */}
       <div
@@ -294,18 +294,23 @@ export default function QuickSaveSheet({ capture, onDismiss, fromCaptureFirst, t
                   <p style={{ fontFamily: "var(--font-body)", fontSize: "13px", color: "var(--accent-warm)" }}>{saveError}</p>
                   <div className="flex gap-3 mt-2">
                     <button
-                      onClick={() => onDismiss()}
+                      onClick={async () => {
+                        setSaveError(null);
+                        try {
+                          await ensureSaved();
+                        } catch {
+                          // Error already set by ensureSaved
+                        }
+                      }}
                       style={{ fontFamily: "var(--font-body)", fontSize: "12px", color: "var(--accent-primary)", fontWeight: 600 }}
                     >
                       Retry
                     </button>
                     <button
-                      onClick={() => {
-                        onDismiss();
-                      }}
+                      onClick={handleSaveToInboxFallback}
                       style={{ fontFamily: "var(--font-body)", fontSize: "12px", color: "var(--text-secondary)" }}
                     >
-                      Dismiss
+                      Save to Inbox instead
                     </button>
                   </div>
                 </div>
@@ -508,14 +513,14 @@ export default function QuickSaveSheet({ capture, onDismiss, fromCaptureFirst, t
               </button>
               <button
                 onClick={handleNewSession}
-                disabled={saving}
+                disabled={assigning}
                 className="flex-1 h-12 rounded-xl font-semibold"
                 style={{
                   backgroundColor: "var(--accent-primary)",
                   fontFamily: "var(--font-body)",
                   fontSize: "14px",
                   color: "var(--surface-base)",
-                  opacity: saving ? 0.6 : 1,
+                  opacity: assigning ? 0.6 : 1,
                 }}
               >
                 {sessionName.trim() ? "Create" : "Skip & create"}
