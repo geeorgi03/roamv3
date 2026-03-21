@@ -1,4 +1,4 @@
-import { ArrowLeft, Share2, MoreVertical, Music, Pin, Film, Repeat, Play, Pause, Rewind, FastForward, Plus, Lightbulb, FileText, PlayCircle, Upload, WifiOff } from "lucide-react";
+import { ArrowLeft, Share2, MoreVertical, Music, Pin, Film, Repeat, Play, Pause, Rewind, FastForward, Plus, Lightbulb, FileText, PlayCircle, Upload, WifiOff, AlertCircle } from "lucide-react";
 import { useNavigate, useParams, useSearchParams } from "react-router";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { flushSync } from "react-dom";
@@ -90,6 +90,9 @@ export default function SessionWorkbench() {
 
   // Offline error state for loop popover
   const [loopOfflineError, setLoopOfflineError] = useState(false);
+
+  // Save error state for loop popover
+  const [loopSaveError, setLoopSaveError] = useState<Record<string, boolean>>({});
 
   // Toast from navigation
   const [navToast, setNavToast] = useState<string | null>(null);
@@ -940,6 +943,12 @@ export default function SessionWorkbench() {
               const autoName = `Loop ${loopLabels[(loops.length + (draftLoop ? 1 : 0)) % loopLabels.length]}`;
               const defaultColor = "var(--accent-cool)";
               const defaultRepeatCount = "4×";
+              // Clear draft error state when creating new draft
+              setLoopSaveError(prev => {
+                const n = { ...prev };
+                delete n["__draft__"];
+                return n;
+              });
               setDraftLoop({
                 startTime: start,
                 endTime: end,
@@ -1025,6 +1034,15 @@ export default function SessionWorkbench() {
                     >
                       {draftLoop.name}{draftLoop.repeatCount ? ` · ${draftLoop.repeatCount}` : ""} (draft)
                     </div>
+                    {/* Error badge */}
+                    {loopSaveError["__draft__"] && (
+                      <div
+                        className="absolute top-0 right-0 w-3 h-3 pointer-events-none"
+                        style={{ transform: 'translate(25%, -25%)' }}
+                      >
+                        <AlertCircle className="w-3 h-3" style={{ color: 'var(--accent-warm)' }} />
+                      </div>
+                    )}
                   </div>
                 );
               })()
@@ -1140,6 +1158,7 @@ export default function SessionWorkbench() {
                     }}
                     className="absolute inset-0"
                     style={{ cursor: 'pointer' }}
+                    aria-label={loopSaveError[loop.id] ? "Save failed — tap to retry" : "Edit loop"}
                   />
                   {/* Label above the region */}
                   <div 
@@ -1152,6 +1171,15 @@ export default function SessionWorkbench() {
                   >
                     {loop.name}{loop.repeatCount ? ` · ${loop.repeatCount}` : ""}
                   </div>
+                  {/* Error badge */}
+                  {loopSaveError[loop.id] && (
+                    <div
+                      className="absolute top-0 right-0 w-3 h-3 pointer-events-none"
+                      style={{ transform: 'translate(25%, -25%)' }}
+                    >
+                      <AlertCircle className="w-3 h-3" style={{ color: 'var(--accent-warm)' }} />
+                    </div>
+                  )}
                   {/* Floating timecode labels when handle is being dragged */}
                   {isBeingDragged && edited && (
                     <>
@@ -1193,6 +1221,14 @@ export default function SessionWorkbench() {
                 <div
                   className="fixed inset-0 z-30"
                   onPointerDown={() => {
+                    // Clear draft error state when dismissing popover
+                    if (loopPopover?.loopId === "__draft__") {
+                      setLoopSaveError(prev => {
+                        const n = { ...prev };
+                        delete n["__draft__"];
+                        return n;
+                      });
+                    }
                     setLoopPopover(null);
                     setLoopOfflineError(false);
                   }}
@@ -1284,6 +1320,18 @@ export default function SessionWorkbench() {
                       </span>
                     </div>
                   )}
+                  {/* Save error message */}
+                  {loopSaveError[loopPopover.loopId] && (
+                    <div
+                      className="mb-2 px-2 py-1.5 rounded-lg flex items-center gap-2"
+                      style={{ backgroundColor: "color-mix(in srgb, var(--accent-warm) 10%, transparent)", border: "1px solid color-mix(in srgb, var(--accent-warm) 30%, transparent)" }}
+                    >
+                      <AlertCircle className="w-3.5 h-3.5" style={{ color: "var(--accent-warm)" }} />
+                      <span style={{ fontFamily: "var(--font-body)", fontSize: "11px", color: "var(--accent-warm)" }}>
+                        Save failed — tap Done to retry
+                      </span>
+                    </div>
+                  )}
                   <button
                     onClick={async () => {
                       if (!online) {
@@ -1298,6 +1346,12 @@ export default function SessionWorkbench() {
                             name: loopPopover.name,
                             color: loopPopover.color,
                             repeatCount: loopPopover.repeatCount,
+                          });
+                          // Clear draft error state when successfully saved
+                          setLoopSaveError(prev => {
+                            const n = { ...prev };
+                            delete n["__draft__"];
+                            return n;
                           });
                           setDraftLoop(null);
                         } else {
@@ -1315,11 +1369,18 @@ export default function SessionWorkbench() {
                             return next;
                           });
                         }
+                        // Clear the error for this loop on success
+                        setLoopSaveError(prev => { 
+                          const n = {...prev}; 
+                          delete n[loopPopover.loopId]; 
+                          return n; 
+                        });
+                        setLoopPopover(null);
+                        setLoopOfflineError(false);
                       } catch (err) {
                         console.error("Failed to save loop:", err);
+                        setLoopSaveError(prev => ({ ...prev, [loopPopover.loopId]: true }));
                       }
-                      setLoopPopover(null);
-                      setLoopOfflineError(false);
                     }}
                     className="w-full h-8 rounded-lg font-semibold"
                     style={{
