@@ -383,6 +383,91 @@ export default function SessionWorkbench() {
   const ideaClips = useMemo(() => clips.filter((c) => c.type === "idea"), [clips]);
   const sortedNotes = useMemo(() => [...notes].sort((a, b) => a.timecode - b.timecode), [notes]);
 
+  // Overlap zones computation - moved to top-level to prevent hook ordering issues
+  const overlapZones = useMemo(() => {
+    if (duration <= 0) return [];
+
+    // Collect all effective region boundaries
+    const regions: { id: string; startTime: number; endTime: number }[] = [];
+
+    // Add persisted loops with edits applied
+    loops.forEach((loop) => {
+      const edited = loopEdits[loop.id];
+      const startTime = edited?.startTime ?? loop.startTime;
+      const endTime = edited?.endTime ?? loop.endTime;
+      regions.push({ id: loop.id, startTime, endTime });
+    });
+
+    // Add draft loop if exists
+    if (draftLoop) {
+      regions.push({
+        id: "__draft__",
+        startTime: draftLoop.startTime,
+        endTime: draftLoop.endTime,
+      });
+    }
+
+    // Add draft preview if exists and width > 0.5%
+    if (loopDraftPreview && loopDraftPreview.widthPct > 0.5) {
+      regions.push({
+        id: "__preview__",
+        startTime: loopDraftPreview.startTime,
+        endTime: loopDraftPreview.endTime,
+      });
+    }
+
+    // Compute pairwise intersections
+    const rawOverlapZones: { overlapStart: number; overlapEnd: number }[] = [];
+    
+    for (let i = 0; i < regions.length; i++) {
+      for (let j = i + 1; j < regions.length; j++) {
+        const a = regions[i];
+        const b = regions[j];
+        const overlapStart = Math.max(a.startTime, b.startTime);
+        const overlapEnd = Math.min(a.endTime, b.endTime);
+        
+        if (overlapEnd > overlapStart) {
+          rawOverlapZones.push({ overlapStart, overlapEnd });
+        }
+      }
+    }
+
+    // Normalize overlap zones: sort, deduplicate, and merge identical ranges
+    if (rawOverlapZones.length === 0) return [];
+
+    // Sort by start time, then by end time
+    rawOverlapZones.sort((a, b) => {
+      if (a.overlapStart !== b.overlapStart) {
+        return a.overlapStart - b.overlapStart;
+      }
+      return a.overlapEnd - b.overlapEnd;
+    });
+
+    // Deduplicate identical ranges and merge overlapping/adjacent ranges
+    const normalizedZones: { overlapStart: number; overlapEnd: number }[] = [];
+    
+    for (const zone of rawOverlapZones) {
+      // Check for exact duplicate
+      const isDuplicate = normalizedZones.some(
+        existing => existing.overlapStart === zone.overlapStart && existing.overlapEnd === zone.overlapEnd
+      );
+      
+      if (isDuplicate) continue;
+      
+      // Check if this zone can be merged with the last one
+      const lastZone = normalizedZones[normalizedZones.length - 1];
+      if (lastZone && zone.overlapStart <= lastZone.overlapEnd) {
+        // Merge overlapping or adjacent zones
+        lastZone.overlapEnd = Math.max(lastZone.overlapEnd, zone.overlapEnd);
+      } else {
+        // Add as a new zone
+        normalizedZones.push({ ...zone });
+      }
+    }
+
+    return normalizedZones;
+  }, [loops, loopEdits, draftLoop, loopDraftPreview, duration]);
+
   const openNoteSheetAt = (timecode: number) => {
     setNoteSheetTimecode(timecode);
     setNoteSheetSection(activeSectionObj?.name || activeSection || "—");
@@ -873,59 +958,10 @@ export default function SessionWorkbench() {
               setLoopOfflineError(false);
             }}
           >
-            {/* Overlap zones computation */}
-            {useMemo(() => {
-              if (duration <= 0) return [];
-
-              // Collect all effective region boundaries
-              const regions: { id: string; startTime: number; endTime: number }[] = [];
-
-              // Add persisted loops with edits applied
-              loops.forEach((loop) => {
-                const edited = loopEdits[loop.id];
-                const startTime = edited?.startTime ?? loop.startTime;
-                const endTime = edited?.endTime ?? loop.endTime;
-                regions.push({ id: loop.id, startTime, endTime });
-              });
-
-              // Add draft loop if exists
-              if (draftLoop) {
-                regions.push({
-                  id: "__draft__",
-                  startTime: draftLoop.startTime,
-                  endTime: draftLoop.endTime,
-                });
-              }
-
-              // Add draft preview if exists and width > 0.5%
-              if (loopDraftPreview && loopDraftPreview.widthPct > 0.5) {
-                regions.push({
-                  id: "__preview__",
-                  startTime: loopDraftPreview.startTime,
-                  endTime: loopDraftPreview.endTime,
-                });
-              }
-
-              // Compute pairwise intersections
-              const overlapZones: { overlapStart: number; overlapEnd: number }[] = [];
-              
-              for (let i = 0; i < regions.length; i++) {
-                for (let j = i + 1; j < regions.length; j++) {
-                  const a = regions[i];
-                  const b = regions[j];
-                  const overlapStart = Math.max(a.startTime, b.startTime);
-                  const overlapEnd = Math.min(a.endTime, b.endTime);
-                  
-                  if (overlapEnd > overlapStart) {
-                    overlapZones.push({ overlapStart, overlapEnd });
-                  }
-                }
-              }
-
-              return overlapZones;
-            }, [loops, loopEdits, draftLoop, loopDraftPreview, duration]).map((zone, index) => (
+            {/* Overlap zones rendering */}
+            {overlapZones.map((zone, index) => (
               <div
-                key={`overlap-${zone.overlapStart}-${zone.overlapEnd}`}
+                key={`overlap-${index}-${zone.overlapStart}-${zone.overlapEnd}`}
                 style={{
                   position: "absolute",
                   top: 0,

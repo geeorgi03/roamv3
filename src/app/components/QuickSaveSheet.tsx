@@ -197,7 +197,11 @@ export default function QuickSaveSheet({ capture, onDismiss, fromCaptureFirst, t
     try {
       await ensureSaved();
       onDismiss();
-      navigate("/inbox");
+      if (fromCaptureFirst) {
+        navigate("/inbox");
+      } else {
+        navigate(-1);
+      }
     } catch (err) {
       setAssignError(err instanceof Error ? err.message : "Failed to save");
     }
