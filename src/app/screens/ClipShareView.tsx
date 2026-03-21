@@ -19,10 +19,17 @@ export default function ClipShareView() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [submitError, setSubmitError] = useState<SubmitError>(null);
+  const [hasWatched, setHasWatched] = useState(false);
 
   useEffect(() => {
     let cancelled = false;
     const run = async () => {
+      // Reset viewer-local state when token changes
+      setHasWatched(false);
+      setViewerState("watching");
+      setResponse("");
+      setSubmitError(null);
+      
       if (!token) {
         setError("Invalid share link");
         setLoading(false);
@@ -103,7 +110,7 @@ export default function ClipShareView() {
             )}
           </div>
         ) : clip?.videoUrl ? (
-          <video src={clip.videoUrl} controls className="absolute inset-0 w-full h-full object-cover" />
+          <video src={clip.videoUrl} controls autoPlay={false} playsInline onEnded={() => setHasWatched(true)} className="absolute inset-0 w-full h-full object-cover" />
         ) : (
           <div className="absolute inset-0 flex items-center justify-center" style={{ color: "#666", fontFamily: "'DM Sans', sans-serif" }}>
             No video available
@@ -116,7 +123,59 @@ export default function ClipShareView() {
 
       {/* Content */}
       <div className="flex-1 px-6 py-8 max-w-lg mx-auto w-full">
-        {viewerState === "watching" ? (
+        {loading ? (
+          <div className="flex items-center justify-center h-full">
+            <p
+              style={{
+                fontFamily: "'DM Sans', sans-serif",
+                fontSize: "14px",
+                color: "#888",
+                textAlign: "center",
+              }}
+            >
+              Loading…
+            </p>
+          </div>
+        ) : error ? (
+          <div className="flex items-center justify-center h-full">
+            <p
+              style={{
+                fontFamily: "'DM Sans', sans-serif",
+                fontSize: "14px",
+                color: "#888",
+                textAlign: "center",
+              }}
+            >
+              {error}
+            </p>
+          </div>
+        ) : !clip?.videoUrl ? (
+          <div className="flex items-center justify-center h-full">
+            <p
+              style={{
+                fontFamily: "'DM Sans', sans-serif",
+                fontSize: "14px",
+                color: "#888",
+                textAlign: "center",
+              }}
+            >
+              No video available
+            </p>
+          </div>
+        ) : !hasWatched ? (
+          <div className="flex items-center justify-center h-full">
+            <p
+              style={{
+                fontFamily: "'DM Sans', sans-serif",
+                fontSize: "14px",
+                color: "#888",
+                textAlign: "center",
+              }}
+            >
+              Watch the clip to share your response.
+            </p>
+          </div>
+        ) : viewerState === "watching" ? (
           <div className="space-y-6">
             {/* Question */}
             <div className="space-y-2">

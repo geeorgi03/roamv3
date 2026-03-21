@@ -1,17 +1,22 @@
-import { ArrowLeft, Share2, MoreVertical, Music, Pin, Film, Repeat, Play, Pause, Rewind, FastForward, Plus, Lightbulb, FileText, PlayCircle, Upload, WifiOff, AlertCircle } from "lucide-react";
+import { ArrowLeft, Share2, MoreVertical, Music, Pin, Film, Repeat, Play, Pause, Rewind, FastForward, Plus, Lightbulb, FileText, PlayCircle, Upload, WifiOff, AlertCircle, ChevronDown } from "lucide-react";
 import { useNavigate, useParams, useSearchParams } from "react-router";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { flushSync } from "react-dom";
 import { useOnlineStatus } from "../hooks/useOnlineStatus";
 import QuickTagSheet from "../components/QuickTagSheet";
+import CaptureOverlay from "../components/CaptureOverlay";
 import MusicAttachmentSheet from "../components/MusicAttachmentSheet";
 import WaveformLoadingTrack from "../components/WaveformLoadingTrack";
-import { useSessionData } from "../hooks/useSessionData";
+import { useSessionData, Clip } from "../hooks/useSessionData";
 import NotePinSheet from "../components/NotePinSheet";
 import ShareSheet from "../components/ShareSheet";
 import AddClipActionSheet from "../components/AddClipActionSheet";
 import VoiceMiniPlayer from "../components/VoiceMiniPlayer";
+import ClipFilterBar from "../components/ClipFilterBar";
+import ClipResponsesSection from "../components/ClipResponsesSection";
 import { apiRequest, uploadFile } from "../../utils/supabase";
+
+const LONG_PRESS_MS = 500;
 
 export default function SessionWorkbench() {
   const navigate = useNavigate();
@@ -32,6 +37,7 @@ export default function SessionWorkbench() {
     updateLoop,
     deleteClip,
     updateSession,
+    fetchCrossSessionClips,
   } = useSessionData(sessionId || null);
   
   const [activeTab, setActiveTab] = useState("Ideas");
@@ -44,6 +50,21 @@ export default function SessionWorkbench() {
   const [currentTime, setCurrentTime] = useState(0);
   const audioRef = useRef<HTMLAudioElement | null>(null);
 
+  // Ideas tab filter state
+  const [ideasTypeFilter, setIdeasTypeFilter] = useState<string | null>(null);
+  const [ideasFeelFilters, setIdeasFeelFilters] = useState<string[]>([]);
+  const [ideasSectionFilter, setIdeasSectionFilter] = useState<string | null>(null);
+  const [ideasUnassignedOnly, setIdeasUnassignedOnly] = useState(false);
+  const [ideasCrossSession, setIdeasCrossSession] = useState(false);
+
+  // Cross-session data
+  const [crossSessionClips, setCrossSessionClips] = useState<Clip[]>([]);
+  const [crossSessionLoading, setCrossSessionLoading] = useState(false);
+  const [crossSessionError, setCrossSessionError] = useState<string | null>(null);
+
+  // Long-press reassign
+  const [reassignClipId, setReassignClipId] = useState<string | null>(null);
+
   const [noteSheetOpen, setNoteSheetOpen] = useState(false);
   const [noteSheetTimecode, setNoteSheetTimecode] = useState(0);
   const [noteSheetSection, setNoteSheetSection] = useState<string>("—");
@@ -55,6 +76,10 @@ export default function SessionWorkbench() {
   const [shareClipDuration, setShareClipDuration] = useState<string | null>(null);
 
   const [showAddClipSheet, setShowAddClipSheet] = useState(false);
+
+  const [captureOpen, setCaptureOpen] = useState(false);
+  const [captureLinkedSection, setCaptureLinkedSection] = useState<string | null>(null);
+  const [pendingBlob, setPendingBlob] = useState<Blob | null>(null);
 
   // Voice note inline playback
   const [playingNoteId, setPlayingNoteId] = useState<string | null>(null);
@@ -100,6 +125,8 @@ export default function SessionWorkbench() {
   // Toast for offline share attempts (must work outside the Share tab)
   const [shareToast, setShareToast] = useState<{ title: string; variant?: string } | null>(null);
   const shareToastTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const longPressSectionRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const longPressReassignRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const toast = ({ title, variant }: { title: string; variant?: string }) => {
     if (shareToastTimeoutRef.current) clearTimeout(shareToastTimeoutRef.current);
@@ -206,18 +233,57 @@ export default function SessionWorkbench() {
     }
   }, [activeLoopId, loops]);
 
+  // Cross-session fetch effect
+  useEffect(() => {
+    if (!ideasCrossSession) {
+      setCrossSessionClips([]);
+      setCrossSessionError(null);
+      return;
+    }
+
+    const fetchCrossSession = async () => {
+      setCrossSessionLoading(true);
+      setCrossSessionError(null);
+      
+      try {
+        const result = await fetchCrossSessionClips({
+          typeTag: ideasTypeFilter,
+          feelTags: ideasFeelFilters,
+          sectionId: ideasSectionFilter,
+          unassigned: ideasUnassignedOnly,
+        });
+        setCrossSessionClips(result.clips);
+      } catch (err) {
+        setCrossSessionError('Couldn\'t load other sessions');
+        console.error('Error fetching cross-session clips:', err);
+      } finally {
+        setCrossSessionLoading(false);
+      }
+    };
+
+    fetchCrossSession();
+  }, [
+    ideasCrossSession,
+    ideasTypeFilter,
+    ideasFeelFilters,
+    ideasSectionFilter,
+    ideasUnassignedOnly,
+    fetchCrossSessionClips,
+  ]);
+
   // Handle quick tag submit
   const handleQuickTagSubmit = async (data: { type: string; feel?: string }) => {
     try {
       await addClip({
         videoUrl: "", // In a real app, this would be the video file
         startTime: currentTime, // Current playback position
-        section: activeSection ?? undefined,
+        section: captureLinkedSection ?? activeSection ?? undefined,
         type: data.type as 'idea' | 'teaching' | 'full-run',
         feel: data.feel,
         tags: [],
       });
       setShowQuickTag(false);
+      setPendingBlob(null);
     } catch (error) {
       console.error("Failed to add clip:", error);
     }
@@ -352,6 +418,27 @@ export default function SessionWorkbench() {
     }
   };
 
+  // Long press handlers for clip reassignment
+  const handleClipPointerDown = (clipId: string) => {
+    longPressReassignRef.current = setTimeout(() => {
+      setReassignClipId(clipId);
+    }, LONG_PRESS_MS);
+  };
+
+  const handleClipPointerUp = () => {
+    if (longPressReassignRef.current) {
+      clearTimeout(longPressReassignRef.current);
+      longPressReassignRef.current = null;
+    }
+  };
+
+  const handleClipPointerLeave = () => {
+    if (longPressReassignRef.current) {
+      clearTimeout(longPressReassignRef.current);
+      longPressReassignRef.current = null;
+    }
+  };
+
 
 
   const tabs = [
@@ -383,7 +470,52 @@ export default function SessionWorkbench() {
 
   const shareClips = useMemo(() => clips, [clips]);
 
-  const ideaClips = useMemo(() => clips.filter((c) => c.type === "idea"), [clips]);
+  const filteredIdeasClips = useMemo(() => {
+    // Fall back to in-session clips when cross-session fails
+    const sourceClips = ideasCrossSession && !crossSessionError ? crossSessionClips : clips;
+    
+    return sourceClips.filter((c) => {
+      // Only show idea-type clips
+      if (c.type !== "idea") return false;
+      
+      // Type filter
+      if (ideasTypeFilter) {
+        const clipType = c.type_tag || c.type;
+        if (clipType !== ideasTypeFilter) return false;
+      }
+      
+      // Feel filters (AND logic)
+      if (ideasFeelFilters.length > 0) {
+        const clipFeels = c.feel_tags || (c.feel ? [c.feel] : []);
+        const hasAllFeels = ideasFeelFilters.every(feel => clipFeels.includes(feel));
+        if (!hasAllFeels) return false;
+      }
+      
+      // Section filter
+      if (ideasSectionFilter) {
+        const clipSection = c.section_id || c.section;
+        if (clipSection !== ideasSectionFilter) return false;
+      }
+      
+      // Unassigned only
+      if (ideasUnassignedOnly) {
+        const hasSection = !!(c.section_id || c.section);
+        if (hasSection) return false;
+      }
+      
+      return true;
+    });
+  }, [
+    clips,
+    crossSessionClips,
+    crossSessionError,
+    ideasCrossSession,
+    ideasTypeFilter,
+    ideasFeelFilters,
+    ideasSectionFilter,
+    ideasUnassignedOnly,
+  ]);
+  
   const sortedNotes = useMemo(() => [...notes].sort((a, b) => a.timecode - b.timecode), [notes]);
 
   // Overlap zones computation - moved to top-level to prevent hook ordering issues
@@ -690,6 +822,24 @@ export default function SessionWorkbench() {
                             <button
                               key={section.name}
                               onClick={() => setActiveSection(section.name)}
+                              onPointerDown={() => {
+                                longPressSectionRef.current = setTimeout(() => {
+                                  setCaptureLinkedSection(section.name);
+                                  setCaptureOpen(true);
+                                }, 500);
+                              }}
+                              onPointerUp={() => {
+                                if (longPressSectionRef.current) {
+                                  clearTimeout(longPressSectionRef.current);
+                                  longPressSectionRef.current = null;
+                                }
+                              }}
+                              onPointerLeave={() => {
+                                if (longPressSectionRef.current) {
+                                  clearTimeout(longPressSectionRef.current);
+                                  longPressSectionRef.current = null;
+                                }
+                              }}
                               className="px-2 py-0.5 rounded-full text-center transition-opacity hover:opacity-90 absolute"
                               style={{
                                 left: `${leftPct}%`,
@@ -1684,32 +1834,194 @@ export default function SessionWorkbench() {
         <div className="mt-5">
           {activeTab === "Ideas" && (
             <div>
-              <div style={{ fontFamily: "var(--font-app-title)", fontWeight: 600, fontSize: "13px", color: "var(--text-primary)" }}>
-                Ideas
-              </div>
-              <div className="mt-2 space-y-2">
-                {ideaClips.length === 0 ? (
-                  <div style={{ fontFamily: "var(--font-body)", fontSize: "12px", color: "var(--text-disabled)" }}>No ideas yet</div>
-                ) : (
-                  ideaClips.map((c) => (
-                    <div key={c.id} className="flex items-center justify-between px-3 py-2 rounded-lg" style={{ backgroundColor: "var(--surface-raised)", border: "1px solid var(--border-subtle)" }}>
-                      <div>
-                        <div style={{ fontFamily: "var(--font-body)", fontSize: "13px", color: "var(--text-primary)" }}>{c.section || "Unassigned"}</div>
-                        <div style={{ fontFamily: "var(--font-mono)", fontSize: "11px", color: "var(--text-secondary)" }}>{formatTime(c.startTime)}</div>
+              <ClipFilterBar
+                typeFilter={ideasTypeFilter}
+                feelFilters={ideasFeelFilters}
+                sectionFilter={ideasSectionFilter}
+                unassignedOnly={ideasUnassignedOnly}
+                crossSession={ideasCrossSession}
+                sections={sections.map(s => s.name)}
+                onTypeChange={setIdeasTypeFilter}
+                onFeelToggle={(feel) => {
+                  setIdeasFeelFilters(prev => 
+                    prev.includes(feel) 
+                      ? prev.filter(f => f !== feel)
+                      : [...prev, feel]
+                  );
+                }}
+                onSectionChange={setIdeasSectionFilter}
+                onUnassignedToggle={() => setIdeasUnassignedOnly(prev => !prev)}
+                onCrossSessionToggle={() => setIdeasCrossSession(prev => !prev)}
+              />
+
+              {/* Cross-session error banner */}
+              {crossSessionError && (
+                <div 
+                  className="mx-4 mt-3 px-3 py-2 rounded-lg flex items-center justify-between"
+                  style={{ 
+                    backgroundColor: 'var(--surface-raised)',
+                    border: '1px solid var(--accent-warm)',
+                  }}
+                >
+                  <div style={{ fontSize: '12px', color: 'var(--text-warm)', fontFamily: 'var(--font-body)' }}>
+                    {crossSessionError}
+                  </div>
+                  <button
+                    onClick={() => setCrossSessionError(null)}
+                    style={{ fontSize: '11px', color: 'var(--text-warm)', fontFamily: 'var(--font-body)' }}
+                  >
+                    Dismiss
+                  </button>
+                </div>
+              )}
+
+              {/* Loading skeleton */}
+              {crossSessionLoading && (
+                <div className="grid grid-cols-2 gap-2.5 p-4">
+                  {[1, 2, 3, 4].map((i) => (
+                    <div key={i} className="rounded-xl overflow-hidden" style={{ backgroundColor: 'var(--surface-raised)', border: '1px solid var(--border-subtle)' }}>
+                      <div className="h-24 bg-gray-700 animate-pulse" />
+                      <div className="p-3 space-y-2">
+                        <div className="h-3 bg-gray-600 rounded animate-pulse" />
+                        <div className="h-2 bg-gray-600 rounded w-3/4 animate-pulse" />
                       </div>
-                      <button
+                    </div>
+                  ))}
+                </div>
+              )}
+
+              {/* Clip grid */}
+              {!crossSessionLoading && (
+                filteredIdeasClips.length === 0 ? (
+                  <div className="p-4 text-center">
+                    <div style={{ fontSize: '14px', color: 'var(--text-disabled)', fontFamily: 'var(--font-body)', marginBottom: '12px' }}>
+                      No clips match these filters
+                    </div>
+                    <button
+                      onClick={() => {
+                        setIdeasTypeFilter(null);
+                        setIdeasFeelFilters([]);
+                        setIdeasSectionFilter(null);
+                        setIdeasUnassignedOnly(false);
+                      }}
+                      className="px-4 py-2 rounded-lg"
+                      style={{
+                        backgroundColor: 'var(--accent-primary)',
+                        color: 'var(--surface-base)',
+                        fontSize: '12px',
+                        fontFamily: 'var(--font-body)',
+                        fontWeight: 600,
+                      }}
+                    >
+                      Clear filters
+                    </button>
+                  </div>
+                ) : (
+                  <div className="grid grid-cols-2 gap-2.5 p-4">
+                    {filteredIdeasClips.map((clip) => (
+                      <div
+                        key={clip.id}
+                        className="rounded-xl overflow-hidden cursor-pointer transition-opacity hover:opacity-80"
+                        style={{ 
+                          backgroundColor: 'var(--surface-raised)', 
+                          border: '1px solid var(--border-subtle)' 
+                        }}
+                        onPointerDown={() => handleClipPointerDown(clip.id)}
+                        onPointerUp={handleClipPointerUp}
+                        onPointerLeave={handleClipPointerLeave}
                         onClick={() => {
                           const el = audioRef.current;
-                          if (el) el.currentTime = c.startTime;
+                          if (el) el.currentTime = clip.startTime;
                         }}
-                        style={{ fontFamily: "var(--font-body)", fontSize: "12px", color: "var(--accent-primary)" }}
                       >
-                        Jump
-                      </button>
-                    </div>
-                  ))
-                )}
-              </div>
+                        {/* Thumbnail area */}
+                        <div className="relative h-24 bg-gray-700">
+                          {/* Type badge */}
+                          <div 
+                            className="absolute top-2 left-2 px-2 py-1 rounded text-xs font-medium"
+                            style={{
+                              backgroundColor: 'var(--accent-primary)',
+                              color: 'var(--surface-base)',
+                              fontFamily: 'var(--font-body)',
+                            }}
+                          >
+                            {clip.type_tag || clip.type}
+                          </div>
+                          
+                          {/* Upload state badge */}
+                          {(clip.upload_status === 'local' || clip.upload_status === 'pending') && (
+                            <div 
+                              className="absolute top-2 right-2 px-2 py-1 rounded text-xs font-medium"
+                              style={{
+                                backgroundColor: 'var(--accent-warm)',
+                                color: 'var(--surface-base)',
+                                fontFamily: 'var(--font-body)',
+                              }}
+                            >
+                              {clip.upload_status}
+                            </div>
+                          )}
+                        </div>
+
+                        {/* Card meta */}
+                        <div className="p-3">
+                          {/* Section label */}
+                          <div 
+                            className="text-xs font-medium mb-1 truncate"
+                            style={{
+                              color: 'var(--text-primary)',
+                              fontFamily: 'var(--font-body)',
+                            }}
+                          >
+                            {clip.section_id || clip.section || 'Unassigned'}
+                          </div>
+                          
+                          {/* Note text placeholder */}
+                          <div 
+                            className="text-xs truncate mb-2"
+                            style={{
+                              color: 'var(--text-secondary)',
+                              fontFamily: 'var(--font-body)',
+                            }}
+                          >
+                            {clip.tags?.[0] || 'No note'}
+                          </div>
+
+                          {/* Session name for cross-session */}
+                          {ideasCrossSession && clip.session_name && (
+                            <div 
+                              className="text-xs mb-2"
+                              style={{
+                                color: 'var(--text-disabled)',
+                                fontFamily: 'var(--font-body)',
+                              }}
+                            >
+                              {clip.session_name}
+                            </div>
+                          )}
+
+                          {/* Timecode */}
+                          <div 
+                            className="text-xs"
+                            style={{
+                              color: 'var(--text-disabled)',
+                              fontFamily: 'var(--font-mono)',
+                            }}
+                          >
+                            {formatTime(clip.startTime)}
+                          </div>
+                        </div>
+
+                        {/* Responses section */}
+                        <ClipResponsesSection
+                          clipId={clip.id}
+                          sessionId={clip.sessionId || sessionId!}
+                        />
+                      </div>
+                    ))}
+                  </div>
+                )
+              )}
             </div>
           )}
 
@@ -2104,9 +2416,21 @@ export default function SessionWorkbench() {
 
       {/* Floating Capture Button */}
       <button
-        onClick={() => navigate(`/capture?sessionId=${sessionId}&section=${activeSection || ""}`)}
+        onClick={() => {
+          const hasMusic = !!session?.musicUrl;
+          if (!hasMusic) {
+            toast({ title: "Add music to start capturing" });
+            return;
+          }
+          setCaptureOpen(true);
+          setCaptureLinkedSection(activeSection);
+        }}
         className="fixed bottom-24 right-4 w-14 h-14 rounded-full flex items-center justify-center shadow-lg transition-transform hover:scale-105"
-        style={{ backgroundColor: 'var(--accent-primary)' }}
+        style={{ 
+          backgroundColor: session?.musicUrl ? 'var(--accent-primary)' : 'transparent',
+          border: session?.musicUrl ? 'none' : '2px solid var(--border-subtle)',
+          opacity: session?.musicUrl ? 1 : 0.5
+        }}
       >
         <div 
           className="w-6 h-6 rounded-full"
@@ -2120,7 +2444,7 @@ export default function SessionWorkbench() {
       <QuickTagSheet 
         isOpen={showQuickTag}
         onClose={() => setShowQuickTag(false)}
-        section={activeSectionObj?.name || activeSection || "—"}
+        section={captureLinkedSection ?? activeSectionObj?.name ?? activeSection ?? "—"}
         timecode={formatTime(currentTime)}
         onSubmit={handleQuickTagSubmit}
       />
@@ -2155,13 +2479,120 @@ export default function SessionWorkbench() {
         sectionName={activeSectionObj?.name || activeSection || "section"}
         onRecordNow={() => {
           setShowAddClipSheet(false);
-          navigate(`/capture?sessionId=${sessionId}&section=${activeSection || ""}`);
+          setCaptureLinkedSection(activeSection);
+          setCaptureOpen(true);
         }}
         onPickFromInbox={() => {
           setShowAddClipSheet(false);
           navigate(`/inbox?sessionId=${sessionId}&section=${activeSection || ""}`);
         }}
       />
+
+      {/* Reassign Section Sheet */}
+      {reassignClipId && (
+        <>
+          <div 
+            className="fixed inset-0 z-40" 
+            style={{ backgroundColor: "rgba(0,0,0,0.6)" }} 
+            onClick={() => setReassignClipId(null)}
+          />
+          <div
+            className="fixed left-0 right-0 bottom-0 z-50 rounded-t-2xl"
+            style={{
+              backgroundColor: "var(--surface-raised)",
+              borderTop: "1px solid var(--border-subtle)",
+            }}
+          >
+            {/* Handle */}
+            <div className="flex justify-center pt-3">
+              <div className="w-10 h-1 rounded-full" style={{ backgroundColor: "var(--border-subtle)" }} />
+            </div>
+
+            {/* Title */}
+            <div className="px-5 pt-4 pb-2">
+              <p
+                style={{
+                  fontFamily: "var(--font-app-title)",
+                  fontWeight: 600,
+                  fontSize: "16px",
+                  color: "var(--text-primary)",
+                }}
+              >
+                Move to section
+              </p>
+            </div>
+
+            {/* Section Options */}
+            <div className="px-4 pb-10 space-y-2 pt-2">
+              {sections.map((section) => (
+                <button
+                  key={section.name}
+                  onClick={async () => {
+                    try {
+                      const res = await apiRequest(`/sessions/${sessionId}/clips/${reassignClipId}`, {
+                        method: 'PATCH',
+                        body: JSON.stringify({ section_id: section.name }),
+                      });
+
+                      if (!res.ok) {
+                        throw new Error('Failed to move clip');
+                      }
+
+                      // Update local state optimistically
+                      setClips(prev => prev.map(clip => 
+                        clip.id === reassignClipId 
+                          ? { ...clip, section_id: section.name, section: section.name }
+                          : clip
+                      ));
+
+                      setReassignClipId(null);
+                      toast({ title: `Moved to ${section.name} ✓` });
+                    } catch (err) {
+                      console.error('Error moving clip:', err);
+                      toast({ title: 'Failed to move clip', variant: 'destructive' });
+                    }
+                  }}
+                  className="w-full flex items-center gap-4 px-4 py-4 rounded-xl transition-opacity hover:opacity-80"
+                  style={{
+                    backgroundColor: "var(--surface-overlay)",
+                    border: "1px solid var(--border-subtle)",
+                  }}
+                >
+                  <div
+                    className="w-10 h-10 rounded-full flex items-center justify-center flex-shrink-0"
+                    style={{ backgroundColor: "var(--accent-cool)" }}
+                  >
+                    <Film className="w-5 h-5" style={{ color: "var(--surface-base)" }} />
+                  </div>
+                  <div className="text-left">
+                    <div style={{ fontFamily: "var(--font-body)", fontSize: "15px", color: "var(--text-primary)", fontWeight: 500 }}>
+                      {section.name}
+                    </div>
+                    <div style={{ fontFamily: "var(--font-body)", fontSize: "12px", color: "var(--text-disabled)" }}>
+                      {formatTime(section.start)} – {formatTime(section.end)}
+                    </div>
+                  </div>
+                </button>
+              ))}
+              
+              {/* Cancel button */}
+              <button
+                onClick={() => setReassignClipId(null)}
+                className="w-full px-4 py-3 rounded-xl transition-opacity hover:opacity-80"
+                style={{
+                  backgroundColor: "var(--surface-raised)",
+                  border: "1px solid var(--border-subtle)",
+                  fontFamily: "var(--font-body)",
+                  fontSize: "15px",
+                  color: "var(--text-secondary)",
+                }}
+              >
+                Cancel
+              </button>
+            </div>
+          </div>
+        </>
+      )}
 
       {/* Nav toast from section assign */}
       {navToast && (
@@ -2210,6 +2641,22 @@ export default function SessionWorkbench() {
             </span>
           </div>
         </div>
+      )}
+
+      {captureOpen && (
+        <CaptureOverlay
+          sectionLabel={captureLinkedSection ?? activeSection ?? "—"}
+          timecode={formatTime(currentTime)}
+          onStop={(blob) => {
+            setPendingBlob(blob);
+            setCaptureOpen(false);
+            setShowQuickTag(true);
+          }}
+          onClose={() => {
+            setCaptureOpen(false);
+            setCaptureLinkedSection(null);
+          }}
+        />
       )}
         </>
       )}

@@ -26,6 +26,12 @@ export interface Clip {
   feel?: string;
   tags: string[];
   createdAt: string;
+  // Phase 2 fields
+  type_tag?: string | null;
+  feel_tags?: string[];
+  section_id?: string | null;
+  timecode_ms?: number | null;
+  session_name?: string;
 }
 
 export interface NotePin {
@@ -395,6 +401,45 @@ export function useSessionData(sessionId: string | null) {
     }
   };
 
+  const fetchCrossSessionClips = async (filters: {
+    typeTag?: string;
+    feelTags?: string[];
+    sectionId?: string;
+    unassigned?: boolean;
+  }) => {
+    try {
+      const params = new URLSearchParams();
+      
+      if (filters.typeTag) {
+        params.append('type_tag', filters.typeTag);
+      }
+      
+      if (filters.feelTags && filters.feelTags.length > 0) {
+        filters.feelTags.forEach(tag => params.append('feel_tags[]', tag));
+      }
+      
+      if (filters.sectionId) {
+        params.append('section_id', filters.sectionId);
+      }
+      
+      if (filters.unassigned) {
+        params.append('unassigned', 'true');
+      }
+
+      const res = await apiRequest(`/clips?${params.toString()}`);
+      
+      if (!res.ok) {
+        throw new Error('Failed to fetch cross-session clips');
+      }
+
+      const data = await res.json();
+      return { clips: data.clips || [] };
+    } catch (err) {
+      console.error('Error fetching cross-session clips:', err);
+      throw err;
+    }
+  };
+
   return {
     session,
     clips,
@@ -416,5 +461,6 @@ export function useSessionData(sessionId: string | null) {
     addFloorMark,
     updateFloorMark,
     deleteFloorMark,
+    fetchCrossSessionClips,
   };
 }
