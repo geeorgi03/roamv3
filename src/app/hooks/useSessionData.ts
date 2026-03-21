@@ -401,6 +401,28 @@ export function useSessionData(sessionId: string | null) {
     }
   };
 
+  const updateClip = async (clipId: string, updates: Partial<Clip>) => {
+    if (!sessionId) return;
+
+    try {
+      const res = await apiRequest(`/sessions/${sessionId}/clips/${clipId}`, {
+        method: 'PATCH',
+        body: JSON.stringify(updates),
+      });
+
+      if (!res.ok) {
+        throw new Error('Failed to update clip');
+      }
+
+      const data = await res.json();
+      setClips(prev => prev.map(c => c.id === clipId ? { ...c, ...data.clip } : c));
+      return data.clip;
+    } catch (err) {
+      console.error('Error updating clip:', err);
+      throw err;
+    }
+  };
+
   const fetchCrossSessionClips = async (filters: {
     typeTag?: string;
     feelTags?: string[];
@@ -461,6 +483,7 @@ export function useSessionData(sessionId: string | null) {
     addFloorMark,
     updateFloorMark,
     deleteFloorMark,
+    updateClip,
     fetchCrossSessionClips,
   };
 }
