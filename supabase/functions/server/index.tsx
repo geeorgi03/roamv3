@@ -244,6 +244,59 @@ app.delete("/make-server-837ff822/sessions/:id", async (c) => {
 
 // ==================== CLIP ROUTES ====================
 
+// Helper to get normalized section value (prefer section_id, fallback to section)
+const getNormalizedSection = (clip: any): string | undefined => {
+  return clip.section_id || clip.section;
+};
+
+app.get("/make-server-837ff822/clips", async (c) => {
+  try {
+    const userId = await getAuthenticatedUserId(c.req.raw);
+    if (!userId) {
+      return c.json({ error: 'Unauthorized' }, 401);
+    }
+    
+    const type_tag = c.req.query('type_tag');
+    const feel_tags = c.req.queries('feel_tags[]') || [];
+    const section_id = c.req.query('section_id');
+    const unassigned = c.req.query('unassigned') === 'true';
+    
+    const allClips = await kv.getByPrefix(`clip:${userId}:`);
+    
+    let filteredClips = allClips.filter(clip => {
+      if (type_tag && clip.type_tag !== type_tag) return false;
+      if (feel_tags.length > 0 && (!Array.isArray(clip.feel_tags) || !feel_tags.every(tag => clip.feel_tags.includes(tag)))) return false;
+      
+      const normalizedSection = getNormalizedSection(clip);
+      if (section_id && normalizedSection !== section_id) return false;
+      if (unassigned && normalizedSection) return false;
+      return true;
+    });
+    
+    const uniqueSessionIds = [...new Set(filteredClips.map(clip => clip.sessionId))];
+    const sessionPromises = uniqueSessionIds.map(sessionId => kv.get(`session:${userId}:${sessionId}`));
+    const sessions = await Promise.all(sessionPromises);
+    
+    const sessionNameMap: Record<string, string> = {};
+    sessions.forEach((session, index) => {
+      const sessionId = uniqueSessionIds[index];
+      sessionNameMap[sessionId] = session?.name ?? session?.title ?? '';
+    });
+    
+    const clips = filteredClips.map(clip => ({
+      ...clip,
+      session_id: clip.sessionId,
+      session_name: sessionNameMap[clip.sessionId] ?? '',
+      section_id: getNormalizedSection(clip)
+    }));
+    
+    return c.json({ clips });
+  } catch (error) {
+    console.log(`Error fetching cross-session clips: ${error}`);
+    return c.json({ error: 'Failed to fetch clips' }, 500);
+  }
+});
+
 app.get("/make-server-837ff822/sessions/:sessionId/clips", async (c) => {
   try {
     const userId = await getAuthenticatedUserId(c.req.raw);
@@ -270,10 +323,12 @@ app.post("/make-server-837ff822/sessions/:sessionId/clips", async (c) => {
     
     const sessionId = c.req.param('sessionId');
     const clipData = await c.req.json();
+    const feel_tags = Array.isArray(clipData.feel_tags) ? clipData.feel_tags : [];
     const clipId = clipData.id || crypto.randomUUID();
     
     const clip = {
       ...clipData,
+      feel_tags,
       id: clipId,
       sessionId,
       userId,
@@ -680,11 +735,19 @@ app.post("/make-server-837ff822/sessions/:sessionId/clips/:clipId/share", async 
       return c.json({ error: 'Clip not found' }, 404);
     }
     
+    let body: any = {};
+    try {
+      body = await c.req.json();
+    } catch {
+      // Body may be absent
+    }
+    const mode = body?.mode ?? 'lightweight';
+    
     // Check for existing share token
     const existingShare = await kv.get(`share:clip:${clipId}`);
     if (existingShare?.token) {
       const baseUrl = Deno.env.get('PUBLIC_SITE_URL') || 'https://app.example.com';
-      return c.json({ token: existingShare.token, url: `${baseUrl}/share/${existingShare.token}` });
+      return c.json({ token: existingShare.token, url: `${baseUrl}/share/${existingShare.token}`, mode: existingShare.mode ?? 'lightweight' });
     }
     
     // Generate new share token
@@ -695,6 +758,7 @@ app.post("/make-server-837ff822/sessions/:sessionId/clips/:clipId/share", async 
       sessionId,
       userId,
       type: 'clip',
+      mode,
       createdAt: new Date().toISOString(),
     };
     
@@ -758,7 +822,7 @@ app.get("/make-server-837ff822/share/:token", async (c) => {
       if (!session) {
         return c.json({ error: 'Session no longer exists' }, 404);
       }
-      return c.json({ type: 'session', session });
+      return c.json({ type: 'session', session, mode: shareData.mode ?? 'lightweight' });
     } else if (shareData.type === 'clip') {
       const clip = await kv.get(`clip:${shareData.userId}:${shareData.sessionId}:${shareData.clipId}`);
       if (!clip) {
@@ -777,7 +841,7 @@ app.get("/make-server-837ff822/share/:token", async (c) => {
               prompt: (clip as Record<string, unknown>).prompt,
             }
           : clip;
-      return c.json({ type: 'clip', clip: normalizedClip, sessionId: shareData.sessionId });
+      return c.json({ type: 'clip', clip: normalizedClip, sessionId: shareData.sessionId, mode: shareData.mode ?? 'lightweight' });
     }
     
     return c.json({ error: 'Invalid share type' }, 400);
