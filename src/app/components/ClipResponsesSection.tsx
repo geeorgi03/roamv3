@@ -47,7 +47,7 @@ export default function ClipResponsesSection({
     }
   };
 
-  const displayCount = responseCount ?? (hasLoaded ? responses.length : undefined);
+  const displayCount = responseCount ?? (hasLoaded ? responses.length : 0);
   
   return (
     <Collapsible open={isOpen} onOpenChange={setIsOpen}>
@@ -64,7 +64,7 @@ export default function ClipResponsesSection({
         >
           <div className="flex items-center justify-between">
             <span>
-              {displayCount !== undefined ? `${displayCount} response${displayCount !== 1 ? 's' : ''}` : 'Responses'}
+              {displayCount} response{displayCount !== 1 ? 's' : ''}
             </span>
             <div 
               className="w-3 h-3 transition-transform"

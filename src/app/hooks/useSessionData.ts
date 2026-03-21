@@ -32,6 +32,7 @@ export interface Clip {
   section_id?: string | null;
   timecode_ms?: number | null;
   session_name?: string;
+  upload_status?: 'local' | 'pending' | 'uploaded' | 'failed';
 }
 
 export interface NotePin {
@@ -423,7 +424,30 @@ export function useSessionData(sessionId: string | null) {
     }
   };
 
-  const fetchCrossSessionClips = async (filters: {
+  const updateClipWithSession = async (clipId: string, targetSessionId: string, updates: Partial<Clip>) => {
+    try {
+      const res = await apiRequest(`/sessions/${targetSessionId}/clips/${clipId}`, {
+        method: 'PATCH',
+        body: JSON.stringify(updates),
+      });
+
+      if (!res.ok) {
+        throw new Error('Failed to update clip');
+      }
+
+      const data = await res.json();
+      // Only update local state if the target session is the current session
+      if (targetSessionId === sessionId) {
+        setClips(prev => prev.map(c => c.id === clipId ? { ...c, ...data.clip } : c));
+      }
+      return data.clip;
+    } catch (err) {
+      console.error('Error updating clip:', err);
+      throw err;
+    }
+  };
+
+  const fetchCrossSessionClips = useCallback(async (filters: {
     typeTag?: string;
     feelTags?: string[];
     sectionId?: string;
@@ -460,7 +484,7 @@ export function useSessionData(sessionId: string | null) {
       console.error('Error fetching cross-session clips:', err);
       throw err;
     }
-  };
+  }, []);
 
   return {
     session,
@@ -484,6 +508,7 @@ export function useSessionData(sessionId: string | null) {
     updateFloorMark,
     deleteFloorMark,
     updateClip,
+    updateClipWithSession,
     fetchCrossSessionClips,
   };
 }

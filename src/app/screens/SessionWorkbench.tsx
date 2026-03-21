@@ -37,6 +37,8 @@ export default function SessionWorkbench() {
     updateLoop,
     deleteClip,
     updateSession,
+    updateClip,
+    updateClipWithSession,
     fetchCrossSessionClips,
   } = useSessionData(sessionId || null);
   
@@ -61,9 +63,10 @@ export default function SessionWorkbench() {
   const [crossSessionClips, setCrossSessionClips] = useState<Clip[]>([]);
   const [crossSessionLoading, setCrossSessionLoading] = useState(false);
   const [crossSessionError, setCrossSessionError] = useState<string | null>(null);
+  const [crossSessionFetchFailed, setCrossSessionFetchFailed] = useState(false);
 
   // Long-press reassign
-  const [reassignClipId, setReassignClipId] = useState<string | null>(null);
+  const [reassignClip, setReassignClip] = useState<{ clipId: string; sessionId: string } | null>(null);
 
   const [noteSheetOpen, setNoteSheetOpen] = useState(false);
   const [noteSheetTimecode, setNoteSheetTimecode] = useState(0);
@@ -238,6 +241,7 @@ export default function SessionWorkbench() {
     if (!ideasCrossSession) {
       setCrossSessionClips([]);
       setCrossSessionError(null);
+      setCrossSessionFetchFailed(false);
       return;
     }
 
@@ -253,8 +257,10 @@ export default function SessionWorkbench() {
           unassigned: ideasUnassignedOnly,
         });
         setCrossSessionClips(result.clips);
+        setCrossSessionFetchFailed(false);
       } catch (err) {
         setCrossSessionError('Couldn\'t load other sessions');
+        setCrossSessionFetchFailed(true);
         console.error('Error fetching cross-session clips:', err);
       } finally {
         setCrossSessionLoading(false);
@@ -421,7 +427,12 @@ export default function SessionWorkbench() {
   // Long press handlers for clip reassignment
   const handleClipPointerDown = (clipId: string) => {
     longPressReassignRef.current = setTimeout(() => {
-      setReassignClipId(clipId);
+      // Find the clip in either current session clips or cross-session clips
+      const allClips = [...clips, ...crossSessionClips];
+      const clip = allClips.find(c => c.id === clipId);
+      if (clip) {
+        setReassignClip({ clipId: clip.id, sessionId: clip.sessionId });
+      }
     }, LONG_PRESS_MS);
   };
 
@@ -471,30 +482,30 @@ export default function SessionWorkbench() {
   const shareClips = useMemo(() => clips, [clips]);
 
   const filteredIdeasClips = useMemo(() => {
-    // Fall back to in-session clips when cross-session fails
-    const sourceClips = ideasCrossSession && !crossSessionError ? crossSessionClips : clips;
+    // Fall back to in-session clips when cross-session fetch failed
+    const sourceClips = ideasCrossSession && !crossSessionFetchFailed ? crossSessionClips : clips;
     
     return sourceClips.filter((c) => {
-      // Only show idea-type clips
-      if (c.type !== "idea") return false;
-      
-      // Type filter
+      // Type filter - normalize both sides to lowercase for case-insensitive comparison
       if (ideasTypeFilter) {
-        const clipType = c.type_tag || c.type;
-        if (clipType !== ideasTypeFilter) return false;
+        const clipType = (c.type_tag || c.type)?.toLowerCase();
+        const filterType = ideasTypeFilter.toLowerCase();
+        if (clipType !== filterType) return false;
       }
       
-      // Feel filters (AND logic)
+      // Feel filters (AND logic) - normalize both sides to lowercase
       if (ideasFeelFilters.length > 0) {
-        const clipFeels = c.feel_tags || (c.feel ? [c.feel] : []);
-        const hasAllFeels = ideasFeelFilters.every(feel => clipFeels.includes(feel));
+        const clipFeels = (c.feel_tags || (c.feel ? [c.feel] : [])).map(f => f?.toLowerCase());
+        const normalizedFilters = ideasFeelFilters.map(f => f.toLowerCase());
+        const hasAllFeels = normalizedFilters.every(feel => clipFeels.includes(feel));
         if (!hasAllFeels) return false;
       }
       
-      // Section filter
+      // Section filter - normalize both sides to lowercase
       if (ideasSectionFilter) {
-        const clipSection = c.section_id || c.section;
-        if (clipSection !== ideasSectionFilter) return false;
+        const clipSection = (c.section_id || c.section)?.toLowerCase();
+        const filterSection = ideasSectionFilter.toLowerCase();
+        if (clipSection !== filterSection) return false;
       }
       
       // Unassigned only
@@ -508,7 +519,7 @@ export default function SessionWorkbench() {
   }, [
     clips,
     crossSessionClips,
-    crossSessionError,
+    crossSessionFetchFailed,
     ideasCrossSession,
     ideasTypeFilter,
     ideasFeelFilters,
@@ -2489,12 +2500,12 @@ export default function SessionWorkbench() {
       />
 
       {/* Reassign Section Sheet */}
-      {reassignClipId && (
+      {reassignClip && (
         <>
           <div 
             className="fixed inset-0 z-40" 
             style={{ backgroundColor: "rgba(0,0,0,0.6)" }} 
-            onClick={() => setReassignClipId(null)}
+            onClick={() => setReassignClip(null)}
           />
           <div
             className="fixed left-0 right-0 bottom-0 z-50 rounded-t-2xl"
@@ -2529,23 +2540,9 @@ export default function SessionWorkbench() {
                   key={section.name}
                   onClick={async () => {
                     try {
-                      const res = await apiRequest(`/sessions/${sessionId}/clips/${reassignClipId}`, {
-                        method: 'PATCH',
-                        body: JSON.stringify({ section_id: section.name }),
-                      });
+                      await updateClipWithSession(reassignClip.clipId, reassignClip.sessionId, { section_id: section.name });
 
-                      if (!res.ok) {
-                        throw new Error('Failed to move clip');
-                      }
-
-                      // Update local state optimistically
-                      setClips(prev => prev.map(clip => 
-                        clip.id === reassignClipId 
-                          ? { ...clip, section_id: section.name, section: section.name }
-                          : clip
-                      ));
-
-                      setReassignClipId(null);
+                      setReassignClip(null);
                       toast({ title: `Moved to ${section.name} ✓` });
                     } catch (err) {
                       console.error('Error moving clip:', err);
@@ -2577,7 +2574,7 @@ export default function SessionWorkbench() {
               
               {/* Cancel button */}
               <button
-                onClick={() => setReassignClipId(null)}
+                onClick={() => setReassignClip(null)}
                 className="w-full px-4 py-3 rounded-xl transition-opacity hover:opacity-80"
                 style={{
                   backgroundColor: "var(--surface-raised)",

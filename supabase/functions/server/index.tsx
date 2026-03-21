@@ -361,6 +361,32 @@ app.delete("/make-server-837ff822/sessions/:sessionId/clips/:clipId", async (c) 
   }
 });
 
+app.patch("/make-server-837ff822/sessions/:sessionId/clips/:clipId", async (c) => {
+  try {
+    const userId = await getAuthenticatedUserId(c.req.raw);
+    if (!userId) {
+      return c.json({ error: 'Unauthorized' }, 401);
+    }
+    
+    const sessionId = c.req.param('sessionId');
+    const clipId = c.req.param('clipId');
+    const updates = await c.req.json();
+    
+    const existing = await kv.get(`clip:${userId}:${sessionId}:${clipId}`);
+    if (!existing) {
+      return c.json({ error: 'Clip not found' }, 404);
+    }
+    
+    const clip = { ...existing, ...updates };
+    await kv.set(`clip:${userId}:${sessionId}:${clipId}`, clip);
+    
+    return c.json({ clip });
+  } catch (error) {
+    console.log(`Error updating clip: ${error}`);
+    return c.json({ error: 'Failed to update clip' }, 500);
+  }
+});
+
 // ==================== NOTE PIN ROUTES ====================
 
 app.get("/make-server-837ff822/sessions/:sessionId/notes", async (c) => {
