@@ -9,6 +9,11 @@ type SaveClipFn = (clipData: {
   videoUrl?: string;
   audioUrl?: string;
   thumbnailUrl?: string;
+  type_tag?: string | null;
+  feel_tags?: string[];
+  note?: string;
+  section_id?: string | null;
+  timecode_ms?: number | null;
 }) => Promise<unknown>;
 
 function dataUrlToBlob(dataUrl: string): { blob: Blob; mimeType: string } {
@@ -36,6 +41,11 @@ export async function syncPendingClips(saveClip: SaveClipFn, uploadFile: UploadF
         createdAt: pending.createdAt,
         videoUrl: pending.mediaType === "video" ? uploaded.url : undefined,
         audioUrl: pending.mediaType === "audio" ? uploaded.url : undefined,
+        type_tag: pending.type_tag,
+        feel_tags: pending.feel_tags,
+        note: pending.note,
+        section_id: pending.section_id,
+        timecode_ms: pending.timecode_ms,
       };
 
       await saveClip(clipData);

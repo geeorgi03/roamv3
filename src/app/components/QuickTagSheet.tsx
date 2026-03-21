@@ -6,12 +6,15 @@ interface QuickTagSheetProps {
   onClose: () => void;
   section?: string;
   timecode?: string;
-  onSubmit?: (data: { type: string; feel?: string; note?: string }) => void;
+  onSubmit?: (data: { type_tag: string; feel_tags: string[]; note?: string }) => void;
+  saveError?: string | null;
+  onRetry?: () => void;
+  onSaveToInbox?: () => void;
 }
 
-export default function QuickTagSheet({ isOpen, onClose, section = "Chorus", timecode = "0:42", onSubmit }: QuickTagSheetProps) {
+export default function QuickTagSheet({ isOpen, onClose, section = "Chorus", timecode = "0:42", onSubmit, saveError, onRetry, onSaveToInbox }: QuickTagSheetProps) {
   const [selectedType, setSelectedType] = useState("Idea");
-  const [selectedFeel, setSelectedFeel] = useState<string | null>(null);
+  const [selectedFeels, setSelectedFeels] = useState<string[]>([]);
   const [note, setNote] = useState("");
 
   if (!isOpen) return null;
@@ -21,9 +24,8 @@ export default function QuickTagSheet({ isOpen, onClose, section = "Chorus", tim
 
   const handleSave = () => {
     if (onSubmit) {
-      onSubmit({ type: selectedType, feel: selectedFeel || undefined, note: note || undefined });
+      onSubmit({ type_tag: selectedType, feel_tags: selectedFeels, note: note || undefined });
     }
-    onClose();
   };
 
   return (
@@ -53,41 +55,29 @@ export default function QuickTagSheet({ isOpen, onClose, section = "Chorus", tim
 
         <div className="p-6">
           {/* Header */}
-          <div className="flex items-start justify-between mb-6">
-            <div className="flex items-center gap-3">
-              <Video className="w-5 h-5" style={{ color: 'var(--accent-cool)' }} />
-              <div>
-                <div 
-                  style={{ 
-                    fontFamily: 'var(--font-app-title)', 
-                    fontWeight: 700,
-                    fontSize: '16px',
-                    color: 'var(--text-primary)'
-                  }}
-                >
-                  New idea
-                </div>
-                <div 
-                  style={{ 
-                    fontSize: '13px',
-                    color: 'var(--text-secondary)',
-                    fontFamily: 'var(--font-body)'
-                  }}
-                >
-                  {section} · {timecode}
-                </div>
+          <div className="flex items-center gap-3 mb-6">
+            <Video className="w-5 h-5" style={{ color: 'var(--accent-cool)' }} />
+            <div>
+              <div 
+                style={{ 
+                  fontFamily: 'var(--font-app-title)', 
+                  fontWeight: 700,
+                  fontSize: '16px',
+                  color: 'var(--text-primary)'
+                }}
+              >
+                New idea
+              </div>
+              <div 
+                style={{ 
+                  fontSize: '13px',
+                  color: 'var(--text-secondary)',
+                  fontFamily: 'var(--font-body)'
+                }}
+              >
+                {section} · {timecode}
               </div>
             </div>
-            <button 
-              onClick={onClose}
-              style={{ 
-                fontSize: '13px',
-                color: 'var(--text-disabled)',
-                fontFamily: 'var(--font-body)'
-              }}
-            >
-              Skip →
-            </button>
           </div>
 
           {/* Type Section */}
@@ -141,14 +131,20 @@ export default function QuickTagSheet({ isOpen, onClose, section = "Chorus", tim
               {feelOptions.map((option) => (
                 <button
                   key={option}
-                  onClick={() => setSelectedFeel(selectedFeel === option ? null : option)}
+                  onClick={() => {
+                    if (selectedFeels.includes(option)) {
+                      setSelectedFeels(selectedFeels.filter(f => f !== option));
+                    } else {
+                      setSelectedFeels([...selectedFeels, option]);
+                    }
+                  }}
                   className="px-3.5 h-9 rounded-full whitespace-nowrap flex-shrink-0"
                   style={{
-                    backgroundColor: selectedFeel === option ? 'var(--accent-warm)' : 'var(--surface-raised)',
-                    border: selectedFeel === option ? 'none' : '1px solid var(--border-subtle)',
+                    backgroundColor: selectedFeels.includes(option) ? 'var(--accent-warm)' : 'var(--surface-raised)',
+                    border: selectedFeels.includes(option) ? 'none' : '1px solid var(--border-subtle)',
                     color: 'var(--text-primary)',
                     fontSize: '12px',
-                    fontWeight: selectedFeel === option ? 600 : 400,
+                    fontWeight: selectedFeels.includes(option) ? 600 : 400,
                     fontFamily: 'var(--font-body)'
                   }}
                 >
@@ -217,22 +213,88 @@ export default function QuickTagSheet({ isOpen, onClose, section = "Chorus", tim
             </div>
           </div>
 
-          {/* Save Button */}
-          <button
-            onClick={handleSave}
-            className="w-full rounded-lg flex items-center justify-center gap-2"
-            style={{
-              backgroundColor: 'var(--accent-primary)',
-              color: 'var(--surface-base)',
-              fontSize: '14px',
-              fontWeight: 600,
-              fontFamily: 'var(--font-body)',
-              height: '52px'
-            }}
-          >
-            <span>✓</span>
-            Save to {section} →
-          </button>
+          {/* Save Error Banner */}
+          {saveError && (
+            <div className="mb-4 p-3 rounded-lg flex items-center justify-between gap-3" style={{ backgroundColor: 'var(--surface-raised)', border: '1px solid var(--border-subtle)' }}>
+              <span style={{ fontSize: '13px', color: 'var(--text-secondary)', fontFamily: 'var(--font-body)' }}>
+                {saveError}
+              </span>
+              <div className="flex items-center gap-2">
+                {onRetry && (
+                  <button
+                    onClick={onRetry}
+                    className="px-3 py-1.5 rounded-lg flex-shrink-0"
+                    style={{
+                      backgroundColor: 'var(--accent-primary)',
+                      color: 'var(--surface-base)',
+                      fontSize: '12px',
+                      fontWeight: 600,
+                      fontFamily: 'var(--font-body)'
+                    }}
+                  >
+                    Retry
+                  </button>
+                )}
+                {onSaveToInbox && (
+                  <button
+                    onClick={onSaveToInbox}
+                    className="px-3 py-1.5 rounded-lg flex-shrink-0"
+                    style={{
+                      backgroundColor: 'transparent',
+                      color: 'var(--text-secondary)',
+                      fontSize: '12px',
+                      fontFamily: 'var(--font-body)',
+                      border: '1px solid var(--border-subtle)'
+                    }}
+                  >
+                    Save to Inbox instead
+                  </button>
+                )}
+              </div>
+            </div>
+          )}
+
+          {/* Footer Buttons */}
+          <div className="flex gap-3">
+            {/* Skip Button */}
+            <button
+              onClick={() => {
+                if (onSubmit) {
+                  onSubmit({ type_tag: selectedType, feel_tags: [], note: undefined });
+                }
+                onClose();
+              }}
+              className="flex-1 rounded-lg flex items-center justify-center gap-2"
+              style={{
+                backgroundColor: 'var(--surface-raised)',
+                color: 'var(--text-primary)',
+                fontSize: '14px',
+                fontWeight: 600,
+                fontFamily: 'var(--font-body)',
+                height: '52px',
+                border: '1px solid var(--border-subtle)'
+              }}
+            >
+              Skip
+            </button>
+            
+            {/* Save Button */}
+            <button
+              onClick={handleSave}
+              className="flex-1 rounded-lg flex items-center justify-center gap-2"
+              style={{
+                backgroundColor: 'var(--accent-primary)',
+                color: 'var(--surface-base)',
+                fontSize: '14px',
+                fontWeight: 600,
+                fontFamily: 'var(--font-body)',
+                height: '52px'
+              }}
+            >
+              <span>✓</span>
+              Save to {section} →
+            </button>
+          </div>
         </div>
       </div>
     </div>

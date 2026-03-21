@@ -163,7 +163,7 @@ export function useSessionData(sessionId: string | null) {
     }
   };
 
-  const addClip = async (clipData: Omit<Clip, 'id' | 'sessionId' | 'userId' | 'createdAt'>) => {
+  const addClip = useCallback(async (clipData: Omit<Clip, 'id' | 'sessionId' | 'userId' | 'createdAt'>) => {
     if (!sessionId) return;
 
     try {
@@ -183,7 +183,7 @@ export function useSessionData(sessionId: string | null) {
       console.error('Error adding clip:', err);
       throw err;
     }
-  };
+  }, [sessionId]);
 
   const deleteClip = async (clipId: string) => {
     if (!sessionId) return;

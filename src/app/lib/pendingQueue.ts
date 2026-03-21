@@ -9,6 +9,12 @@ export type PendingClip = {
   blobMimeType: string;
   status: PendingClipStatus;
   retryCount: number;
+  type_tag?: string | null;
+  feel_tags?: string[];
+  note?: string;
+  section_id?: string | null;
+  timecode_ms?: number | null;
+  session_id?: string | null;
 };
 
 const STORAGE_KEY = "roam-pending-clips";
