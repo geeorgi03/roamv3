@@ -82,7 +82,7 @@ export default function SessionWorkbench() {
 
   const [captureOpen, setCaptureOpen] = useState(false);
   const [captureLinkedSection, setCaptureLinkedSection] = useState<string | null>(null);
-  const [pendingBlob, setPendingBlob] = useState<Blob | null>(null);
+  const [captureBlob, setCaptureBlob] = useState<Blob | null>(null);
 
   // Voice note inline playback
   const [playingNoteId, setPlayingNoteId] = useState<string | null>(null);
@@ -289,7 +289,7 @@ export default function SessionWorkbench() {
         tags: [],
       });
       setShowQuickTag(false);
-      setPendingBlob(null);
+      setCaptureBlob(null);
     } catch (error) {
       console.error("Failed to add clip:", error);
     }
@@ -835,6 +835,7 @@ export default function SessionWorkbench() {
                               onClick={() => setActiveSection(section.name)}
                               onPointerDown={() => {
                                 longPressSectionRef.current = setTimeout(() => {
+                                  setActiveSection(section.name);
                                   setCaptureLinkedSection(section.name);
                                   setCaptureOpen(true);
                                 }, 500);
@@ -2428,7 +2429,7 @@ export default function SessionWorkbench() {
       {/* Floating Capture Button */}
       <button
         onClick={() => {
-          const hasMusic = !!session?.musicUrl;
+          const hasMusic = !!(session?.musicUrl || session?.music_url);
           if (!hasMusic) {
             toast({ title: "Add music to start capturing" });
             return;
@@ -2438,9 +2439,9 @@ export default function SessionWorkbench() {
         }}
         className="fixed bottom-24 right-4 w-14 h-14 rounded-full flex items-center justify-center shadow-lg transition-transform hover:scale-105"
         style={{ 
-          backgroundColor: session?.musicUrl ? 'var(--accent-primary)' : 'transparent',
-          border: session?.musicUrl ? 'none' : '2px solid var(--border-subtle)',
-          opacity: session?.musicUrl ? 1 : 0.5
+          backgroundColor: (session?.musicUrl || session?.music_url) ? 'var(--accent-primary)' : 'transparent',
+          border: (session?.musicUrl || session?.music_url) ? 'none' : '2px solid var(--border-subtle)',
+          opacity: (session?.musicUrl || session?.music_url) ? 1 : 0.5
         }}
       >
         <div 
@@ -2642,12 +2643,11 @@ export default function SessionWorkbench() {
 
       {captureOpen && (
         <CaptureOverlay
-          sectionLabel={captureLinkedSection ?? activeSection ?? "—"}
+          sectionLabel={captureLinkedSection ?? activeSection ?? "Session"}
           timecode={formatTime(currentTime)}
           onStop={(blob) => {
-            setPendingBlob(blob);
             setCaptureOpen(false);
-            setShowQuickTag(true);
+            setCaptureBlob(blob);
           }}
           onClose={() => {
             setCaptureOpen(false);
