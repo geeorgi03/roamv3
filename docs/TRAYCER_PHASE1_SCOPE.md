@@ -80,6 +80,30 @@
 - Share link generation and management
 - Response viewing for shared content
 
+## Finalized Decisions / Edge-case Policies
+
+### Capture and Inbox Policies
+- **Quick-save "Later" routing**: Selecting "Later" on the quick-save sheet dismisses the sheet in one tap with no confirmation and returns to the home screen. The clip remains in the Inbox with no session assignment.
+- **Inbox persistence rules**: Clips in the Inbox do not expire or delete automatically. After 48 hours, unorganized clips show a gentle nudge prompt: "You have 3 ideas waiting — want to do something with them?" This is a suggestion, not a warning.
+- **Voice memo capture**: Long-press the record button to enter voice-only mode. Release to stop and save as an audio note in the Inbox. Uses the same quick-save sheet as video capture.
+
+### Loop and Session Policies
+- **Loop draft persistence**: Loop regions persist across app sessions and are saved as part of the session data. Multiple non-overlapping regions can coexist on the repetition track.
+- **Loop gap tolerance**: Target seamless loop gap ≤ 50ms. Requires pre-buffering the loop start 100ms before loop end. Fallback behavior: brief visual flash instead of audio stutter if target cannot be met.
+
+### Offline and Connectivity Policies
+- **Upload queue behavior**: Clips are locally saved and visible in the section workspace before upload completes. Upload queue resumes automatically after connectivity is restored.
+- **Offline capture**: Camera opens and records within 200ms of tapping "Record" with no loading screen. Clip saves to Inbox within 500ms of stopping recording, regardless of connectivity.
+
+### Share and Revocation Policies
+- **Share link generation**: One-tap share link generation requires no configuration, brief, or version label. Links are generated immediately for both sessions and clips.
+- **Revoked share behavior**: When a share is revoked, the share token becomes invalid immediately. Public access to shared content is terminated, but existing responses remain visible to the owner.
+- **Lightweight share constraints**: Viewers can only respond to "What stayed with you?" - no opinions, no ratings, no open comments. Responses arrive in a simple list under the clip.
+
+### Voice Memo and Music Resume Policies
+- **Voice memo playback**: Voice memo note pins do not auto-play when timeline passes during playback. They only play on explicit tap to avoid disruption in quiet studio environments.
+- **Music resume behavior**: When recording stops, music playback resumes at the position where it left off, maintaining creative flow without manual restart.
+
 ## Acceptance Criteria Summary
 
 ### Functional Requirements
@@ -168,35 +192,31 @@
 
 ## Run/Test Notes
 
-### Local Development Setup
+### Local Development Setup (Web Prototype)
 ```bash
 # Environment variables required
-SUPABASE_URL=your_supabase_project_url
-SUPABASE_SERVICE_ROLE_KEY=your_service_role_key
-SUPABASE_ANON_KEY=your_anon_key
-PUBLIC_SITE_URL=http://localhost:3000
+NEXT_PUBLIC_SUPABASE_URL=your_supabase_project_url
+NEXT_PUBLIC_SUPABASE_ANON_KEY=your_supabase_anon_key
 
-# Start local development
-pnpm dev
+# Start web development server
+pnpm --filter @roam/web dev
 ```
 
 ### Testing Commands
 ```bash
-# Run unit tests
-pnpm test
+# Run web app tests
+pnpm --filter @roam/web test
 
 # Run integration tests
-pnpm test:integration
+pnpm --filter @roam/web test:integration
 
 # Test API endpoints locally
-curl http://localhost:8000/make-server-837ff822/health
+curl http://localhost:3000/api/health
 ```
 
 ### Environment Variables
-- `SUPABASE_URL` - Supabase project URL
-- `SUPABASE_SERVICE_ROLE_KEY` - Service role key for admin operations
-- `SUPABASE_ANON_KEY` - Anonymous key for client operations
-- `PUBLIC_SITE_URL` - Base URL for share link generation
+- `NEXT_PUBLIC_SUPABASE_URL` - Supabase project URL
+- `NEXT_PUBLIC_SUPABASE_ANON_KEY` - Anonymous key for client operations
 
 ### Deployment Notes
 - Server runs on Deno with Hono framework
