@@ -526,6 +526,23 @@ export default function SessionWorkbench() {
     ideasSectionFilter,
     ideasUnassignedOnly,
   ]);
+
+  // Derived state for active filters detection
+  const hasActiveFilters = useMemo(() => {
+    return !!(
+      ideasTypeFilter ||
+      ideasFeelFilters.length > 0 ||
+      ideasSectionFilter ||
+      ideasUnassignedOnly ||
+      ideasCrossSession
+    );
+  }, [
+    ideasTypeFilter,
+    ideasFeelFilters,
+    ideasSectionFilter,
+    ideasUnassignedOnly,
+    ideasCrossSession,
+  ]);
   
   const sortedNotes = useMemo(() => [...notes].sort((a, b) => a.timecode - b.timecode), [notes]);
 
@@ -1879,7 +1896,11 @@ export default function SessionWorkbench() {
                     {crossSessionError}
                   </div>
                   <button
-                    onClick={() => setCrossSessionError(null)}
+                    onClick={() => {
+                      // Dismiss the error message
+                      // crossSessionFetchFailed is true on failure; dismissing only clears the error message
+                      setCrossSessionError(null);
+                    }}
                     style={{ fontSize: '11px', color: 'var(--text-warm)', fontFamily: 'var(--font-body)' }}
                   >
                     Dismiss
@@ -1904,7 +1925,7 @@ export default function SessionWorkbench() {
 
               {/* Clip grid */}
               {!crossSessionLoading && (
-                filteredIdeasClips.length === 0 ? (
+                filteredIdeasClips.length === 0 && hasActiveFilters ? (
                   <div className="p-4 text-center">
                     <div style={{ fontSize: '14px', color: 'var(--text-disabled)', fontFamily: 'var(--font-body)', marginBottom: '12px' }}>
                       No clips match these filters
@@ -1915,6 +1936,9 @@ export default function SessionWorkbench() {
                         setIdeasFeelFilters([]);
                         setIdeasSectionFilter(null);
                         setIdeasUnassignedOnly(false);
+                        setIdeasCrossSession(false);
+                        setCrossSessionError(null);
+                        setCrossSessionFetchFailed(false);
                       }}
                       className="px-4 py-2 rounded-lg"
                       style={{
@@ -2542,6 +2566,17 @@ export default function SessionWorkbench() {
                   onClick={async () => {
                     try {
                       await updateClipWithSession(reassignClip.clipId, reassignClip.sessionId, { section_id: section.name });
+
+                      // If cross-session mode is enabled, sync the moved clip in crossSessionClips or refetch
+                      if (ideasCrossSession && !crossSessionFetchFailed) {
+                        setCrossSessionClips(prev => 
+                          prev.map(clip => 
+                            clip.id === reassignClip.clipId 
+                              ? { ...clip, section_id: section.name, section: section.name }
+                              : clip
+                          )
+                        );
+                      }
 
                       setReassignClip(null);
                       toast({ title: `Moved to ${section.name} ✓` });
