@@ -242,8 +242,11 @@ export default function SessionWorkbench() {
       setCrossSessionClips([]);
       setCrossSessionError(null);
       setCrossSessionFetchFailed(false);
+      setCrossSessionLoading(false);
       return;
     }
+
+    let cancelled = false;
 
     const fetchCrossSession = async () => {
       setCrossSessionLoading(true);
@@ -256,18 +259,28 @@ export default function SessionWorkbench() {
           sectionId: ideasSectionFilter,
           unassigned: ideasUnassignedOnly,
         });
-        setCrossSessionClips(result.clips);
-        setCrossSessionFetchFailed(false);
+        if (!cancelled) {
+          setCrossSessionClips(result.clips);
+          setCrossSessionFetchFailed(false);
+        }
       } catch (err) {
-        setCrossSessionError('Couldn\'t load other sessions');
-        setCrossSessionFetchFailed(true);
-        console.error('Error fetching cross-session clips:', err);
+        if (!cancelled) {
+          setCrossSessionError('Couldn\'t load other sessions');
+          setCrossSessionFetchFailed(true);
+          console.error('Error fetching cross-session clips:', err);
+        }
       } finally {
-        setCrossSessionLoading(false);
+        if (!cancelled) {
+          setCrossSessionLoading(false);
+        }
       }
     };
 
     fetchCrossSession();
+
+    return () => {
+      cancelled = true;
+    };
   }, [
     ideasCrossSession,
     ideasTypeFilter,
