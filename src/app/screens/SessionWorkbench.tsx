@@ -94,9 +94,10 @@ export default function SessionWorkbench() {
   // Failed submit payload for retry functionality
   const [failedSubmitPayload, setFailedSubmitPayload] = useState<{
     blob: Blob;
-    data: { type_tag: string; feel_tags: string[]; note?: string };
+    data: { type_tag: string | null; feel_tags: string[]; note?: string };
     timecodeMs: number | null;
     linkedSection: string | null;
+    tempId?: string;
   } | null>(null);
 
   // Voice note inline playback
@@ -340,7 +341,7 @@ export default function SessionWorkbench() {
   ]);
 
   // Handle quick tag submit
-  const handleQuickTagSubmit = async (data: { type_tag: string; feel_tags: string[]; note?: string }) => {
+  const handleQuickTagSubmit = async (data: { type_tag: string | null; feel_tags: string[]; note?: string }) => {
     if (!captureBlob) return;
     
     const tempId = crypto.randomUUID();
@@ -405,8 +406,9 @@ export default function SessionWorkbench() {
             timecode_ms: captureTimecodeMs,
             session_id: sessionId,
           });
-          // Remove optimistic clip since it's now pending
-          setOptimisticClips(prev => prev.filter(clip => clip.id !== tempId));
+          setOptimisticClips(prev => prev.map(clip =>
+            clip.id === tempId ? { ...clip, upload_status: 'pending' as const } : clip
+          ));
           return;
         }
         
@@ -435,6 +437,7 @@ export default function SessionWorkbench() {
           data,
           timecodeMs: captureTimecodeMs,
           linkedSection: captureLinkedSection,
+          tempId,
         });
         // Re-open sheet with error but keep it open
         setQuickTagSaveError("Couldn't save — tap Retry");
@@ -466,6 +469,10 @@ export default function SessionWorkbench() {
         timecode_ms: timecodeMs,
         tags: [],
       });
+      
+      if (failedSubmitPayload?.tempId) {
+        setOptimisticClips(prev => prev.filter(clip => clip.id !== failedSubmitPayload.tempId));
+      }
       
       // Close sheet on successful retry
       setShowQuickTag(false);
@@ -698,7 +705,7 @@ export default function SessionWorkbench() {
 
   const shareClips = useMemo(() => [...optimisticClips, ...clips], [clips, optimisticClips]);
 
-  const filteredIdeasClips = useMemo(() => {
+  const filteredClips = useMemo(() => {
     // Fall back to in-session clips when cross-session fetch failed
     const mergedClips = [...optimisticClips, ...clips];
     const sourceClips = ideasCrossSession && !crossSessionFetchFailed ? crossSessionClips : mergedClips;
@@ -2143,7 +2150,7 @@ export default function SessionWorkbench() {
 
               {/* Clip grid */}
               {!crossSessionLoading && (
-                filteredIdeasClips.length === 0 && hasActiveFilters ? (
+                filteredClips.length === 0 && hasActiveFilters ? (
                   <div className="p-4 text-center">
                     <div style={{ fontSize: '14px', color: 'var(--text-disabled)', fontFamily: 'var(--font-body)', marginBottom: '12px' }}>
                       No clips match these filters
@@ -2172,7 +2179,7 @@ export default function SessionWorkbench() {
                   </div>
                 ) : (
                   <div className="grid grid-cols-2 gap-2.5 p-4">
-                    {filteredIdeasClips.map((clip) => (
+                    {filteredClips.map((clip) => (
                       <div
                         key={clip.id}
                         className="rounded-xl overflow-hidden cursor-pointer transition-opacity hover:opacity-80"

@@ -6,14 +6,14 @@ interface QuickTagSheetProps {
   onClose: () => void;
   section?: string;
   timecode?: string;
-  onSubmit?: (data: { type_tag: string; feel_tags: string[]; note?: string }) => void;
+  onSubmit?: (data: { type_tag: string | null; feel_tags: string[]; note?: string }) => void;
   saveError?: string | null;
   onRetry?: () => void;
   onSaveToInbox?: () => void;
 }
 
 export default function QuickTagSheet({ isOpen, onClose, section = "Chorus", timecode = "0:42", onSubmit, saveError, onRetry, onSaveToInbox }: QuickTagSheetProps) {
-  const [selectedType, setSelectedType] = useState("Idea");
+  const [selectedType, setSelectedType] = useState<string | null>(null);
   const [selectedFeels, setSelectedFeels] = useState<string[]>([]);
   const [note, setNote] = useState("");
 
@@ -260,7 +260,7 @@ export default function QuickTagSheet({ isOpen, onClose, section = "Chorus", tim
             <button
               onClick={() => {
                 if (onSubmit) {
-                  onSubmit({ type_tag: selectedType, feel_tags: [], note: undefined });
+                  onSubmit({ type_tag: null, feel_tags: [], note: undefined });
                 }
                 onClose();
               }}
