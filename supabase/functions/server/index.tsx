@@ -1218,7 +1218,7 @@ app.post("/make-server-837ff822/share/:token/response", async (c) => {
         .from('clips')
         .select('id')
         .eq('session_id', data.session_id)
-        .eq('status', 'ready')
+        .eq('upload_status', 'ready')
         .order('created_at', { ascending: true })
         .limit(1)
         .maybeSingle();

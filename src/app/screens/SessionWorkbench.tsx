@@ -342,6 +342,7 @@ export default function SessionWorkbench() {
 
             if (!serverId) {
               setOptimisticClips((prev) => prev.filter((c) => c.id !== tempId));
+              refresh();
               return;
             }
 
@@ -631,6 +632,7 @@ export default function SessionWorkbench() {
       
       if (failedSubmitPayload?.tempId) {
         setOptimisticClips(prev => prev.filter(clip => clip.id !== failedSubmitPayload.tempId));
+        refresh();
       }
       
       // Close sheet on successful retry
