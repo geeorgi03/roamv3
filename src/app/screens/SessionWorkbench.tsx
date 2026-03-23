@@ -94,7 +94,7 @@ export default function SessionWorkbench() {
   // Failed submit payload for retry functionality
   const [failedSubmitPayload, setFailedSubmitPayload] = useState<{
     blob: Blob;
-    data: { type_tag: string | null; feel_tags: string[]; note?: string };
+    data: { type_tag: string | null; feel_tags: string[]; notes?: string };
     timecodeMs: number | null;
     linkedSection: string | null;
     tempId?: string;
@@ -261,7 +261,7 @@ export default function SessionWorkbench() {
               type: 'idea',
               type_tag: clipData.type_tag,
               feel_tags: clipData.feel_tags,
-              note: clipData.note,
+              notes: clipData.notes,
               section_id: clipData.section_id,
               timecode_ms: clipData.timecode_ms,
               tags: [],
@@ -344,42 +344,51 @@ export default function SessionWorkbench() {
   ]);
 
   // Handle quick tag submit
-  const handleQuickTagSubmit = async (data: { type_tag: string | null; feel_tags: string[]; note?: string }) => {
-    if (!captureBlob) return;
-    
-    const tempId = crypto.randomUUID();
-    
-    // 1. Optimistic local clip
+  const submitQuickTag = (
+    source: { blob: Blob; timecodeMs: number | null; linkedSection: string | null; tempId?: string },
+    data: { type_tag: string | null; feel_tags: string[]; notes?: string },
+  ) => {
+    const tempId = source.tempId ?? crypto.randomUUID();
+
+    // 1. Optimistic local clip (upsert by tempId so retries/dismissals don't duplicate)
     const optimisticClip: Clip = {
       id: tempId,
       sessionId: sessionId || '',
       type: 'idea',
       type_tag: data.type_tag,
       feel_tags: data.feel_tags,
-      notes: data.note,
-      section: captureLinkedSection ?? activeSection ?? undefined,
-      section_id: captureLinkedSection ?? activeSection ?? null,
-      timecode_ms: captureTimecodeMs,
-      startTime: (captureTimecodeMs ?? 0) / 1000,
+      notes: data.notes,
+      section: source.linkedSection ?? activeSection ?? undefined,
+      section_id: source.linkedSection ?? activeSection ?? null,
+      timecode_ms: source.timecodeMs,
+      startTime: (source.timecodeMs ?? 0) / 1000,
       videoUrl: '',
       thumbnailUrl: '',
       duration: 0,
       upload_status: 'pending',
       createdAt: new Date().toISOString(),
     };
-    
-    setOptimisticClips(prev => [optimisticClip, ...prev]);
-    
-    // 2. Close sheet and clear blob
+
+    setOptimisticClips((prev) => {
+      const idx = prev.findIndex((c) => c.id === tempId);
+      if (idx >= 0) {
+        const next = [...prev];
+        next[idx] = optimisticClip;
+        return next;
+      }
+      return [optimisticClip, ...prev];
+    });
+
+    // 2. Close sheet and clear capture state
     setShowQuickTag(false);
     setCaptureBlob(null);
     setCaptureTimecodeMs(null);
     setCaptureLinkedSection(null);
     setQuickTagSaveError(null);
     setFailedSubmitPayload(null);
-    
+
     // 3. Background persist (fire-and-forget)
-    (async () => {
+    void (async () => {
       try {
         const blobBase64 = await new Promise<string>((resolve, reject) => {
           const reader = new FileReader();
@@ -388,9 +397,9 @@ export default function SessionWorkbench() {
             resolve(result);
           };
           reader.onerror = reject;
-          reader.readAsDataURL(captureBlob);
+          reader.readAsDataURL(source.blob);
         });
-        
+
         if (!navigator.onLine) {
           // Offline path
           const { addPendingClip } = await import('../lib/pendingQueue');
@@ -398,48 +407,50 @@ export default function SessionWorkbench() {
             tempId,
             mediaType: 'video',
             blobBase64,
-            blobMimeType: captureBlob.type,
+            blobMimeType: source.blob.type,
             status: 'pending',
             retryCount: 0,
             createdAt: new Date().toISOString(),
             type_tag: data.type_tag,
             feel_tags: data.feel_tags,
-            note: data.note,
-            section_id: captureLinkedSection ?? activeSection ?? null,
-            timecode_ms: captureTimecodeMs,
+            notes: data.notes,
+            section_id: source.linkedSection ?? activeSection ?? null,
+            timecode_ms: source.timecodeMs,
             session_id: sessionId,
           });
-          setOptimisticClips(prev => prev.map(clip =>
-            clip.id === tempId ? { ...clip, upload_status: 'pending' as const } : clip
-          ));
+          setOptimisticClips((prev) =>
+            prev.map((clip) =>
+              clip.id === tempId ? { ...clip, upload_status: 'pending' as const } : clip,
+            ),
+          );
           return;
         }
-        
+
         // Online path
-        const { url } = await uploadFile(captureBlob, 'video');
-        const newClip = await addClip({
+        const { url } = await uploadFile(source.blob, 'video');
+        await addClip({
           videoUrl: url,
-          startTime: (captureTimecodeMs ?? 0) / 1000,
-          section: captureLinkedSection ?? activeSection ?? undefined,
+          startTime: (source.timecodeMs ?? 0) / 1000,
+          section: source.linkedSection ?? activeSection ?? undefined,
           type: 'idea',
           type_tag: data.type_tag,
           feel_tags: data.feel_tags,
-          notes: data.note,
-          section_id: captureLinkedSection ?? activeSection,
-          timecode_ms: captureTimecodeMs,
+          notes: data.notes,
+          section_id: source.linkedSection ?? activeSection,
+          timecode_ms: source.timecodeMs,
           tags: [],
         });
-        
+
         // Replace optimistic clip with server clip
-        setOptimisticClips(prev => prev.filter(clip => clip.id !== tempId));
+        setOptimisticClips((prev) => prev.filter((clip) => clip.id !== tempId));
       } catch (error) {
         console.error('Failed to save clip:', error);
         // Store failed payload for retry
         setFailedSubmitPayload({
-          blob: captureBlob,
+          blob: source.blob,
           data,
-          timecodeMs: captureTimecodeMs,
-          linkedSection: captureLinkedSection,
+          timecodeMs: source.timecodeMs,
+          linkedSection: source.linkedSection,
           tempId,
         });
         // Re-open sheet with error but keep it open
@@ -447,6 +458,44 @@ export default function SessionWorkbench() {
         setShowQuickTag(true);
       }
     })();
+  };
+
+  // Standard submit for explicit Save action / Skip button.
+  const handleQuickTagSubmit = (data: { type_tag: string | null; feel_tags: string[]; notes?: string }) => {
+    if (!captureBlob) return;
+    submitQuickTag(
+      { blob: captureBlob, timecodeMs: captureTimecodeMs, linkedSection: captureLinkedSection },
+      data,
+    );
+  };
+
+  // Backdrop/close "dismiss as skip" — must not depend on live captureBlob state.
+  const handleQuickTagDismissSkip = () => {
+    const dismissData = { type_tag: null, feel_tags: [], notes: undefined as string | undefined };
+
+    // Initial sheet-open state.
+    if (captureBlob) {
+      submitQuickTag(
+        { blob: captureBlob, timecodeMs: captureTimecodeMs, linkedSection: captureLinkedSection },
+        dismissData,
+      );
+      return;
+    }
+
+    // Retry-open state (save failed already cleared captureBlob).
+    if (failedSubmitPayload?.blob) {
+      const ok = window.confirm("Save previously failed. Dismissing will save this clip with no tags.");
+      if (!ok) return;
+      submitQuickTag(
+        {
+          blob: failedSubmitPayload.blob,
+          timecodeMs: failedSubmitPayload.timecodeMs,
+          linkedSection: failedSubmitPayload.linkedSection,
+          tempId: failedSubmitPayload.tempId,
+        },
+        dismissData,
+      );
+    }
   };
 
   // Handle retry for failed quick tag submit
@@ -467,7 +516,7 @@ export default function SessionWorkbench() {
         type: 'idea',
         type_tag: data.type_tag,
         feel_tags: data.feel_tags,
-        notes: data.note,
+        notes: data.notes,
         section_id: linkedSection ?? activeSection,
         timecode_ms: timecodeMs,
         tags: [],
@@ -494,7 +543,7 @@ export default function SessionWorkbench() {
     if (!failedSubmitPayload && !captureBlob) return;
     
     const blob = failedSubmitPayload?.blob || captureBlob;
-    const data = failedSubmitPayload?.data || { type_tag: null, feel_tags: [], note: undefined };
+    const data = failedSubmitPayload?.data || { type_tag: null, feel_tags: [], notes: undefined };
     const timecodeMs = failedSubmitPayload?.timecodeMs || captureTimecodeMs;
     const linkedSection = failedSubmitPayload?.linkedSection || captureLinkedSection;
     
@@ -703,7 +752,7 @@ export default function SessionWorkbench() {
 
   const workspaceClips = useMemo(() => {
     const mergedClips = [...optimisticClips, ...clips];
-    return mergedClips.filter((c) => (activeSection ? c.section === activeSection || c.section_id === activeSection : true));
+    return mergedClips.filter((c) => (activeSection ? c.section_id === activeSection : true));
   }, [clips, optimisticClips, activeSection]);
 
   const shareClips = useMemo(() => [...optimisticClips, ...clips], [clips, optimisticClips]);
@@ -732,7 +781,10 @@ export default function SessionWorkbench() {
   const filteredClips = useMemo(() => {
     // Fall back to in-session clips when cross-session fetch failed
     const mergedClips = [...optimisticClips, ...clips];
-    const sourceClips = ideasCrossSession && !crossSessionFetchFailed ? crossSessionClips : mergedClips;
+    const sourceClips =
+      ideasCrossSession && !crossSessionFetchFailed
+        ? [...optimisticClips, ...crossSessionClips]
+        : mergedClips;
     
     return sourceClips.filter((c) => {
       // Type filter - normalize both sides to lowercase for case-insensitive comparison
@@ -752,7 +804,7 @@ export default function SessionWorkbench() {
       
       // Section filter - normalize both sides to lowercase
       if (ideasSectionFilter) {
-        const clipSection = (c.section_id || c.section)?.toLowerCase();
+        const clipSection = c.section_id?.toLowerCase();
         const filterSection = ideasSectionFilter.toLowerCase();
         if (clipSection !== filterSection) return false;
       }
@@ -767,6 +819,7 @@ export default function SessionWorkbench() {
     });
   }, [
     clips,
+    optimisticClips,
     crossSessionClips,
     crossSessionFetchFailed,
     ideasCrossSession,
@@ -2728,13 +2781,7 @@ export default function SessionWorkbench() {
 
       <QuickTagSheet 
         isOpen={showQuickTag}
-        onClose={() => {
-          setCaptureBlob(null);
-          setCaptureTimecodeMs(null);
-          setCaptureLinkedSection(null);
-          setShowQuickTag(false);
-          setQuickTagSaveError(null);
-        }}
+        onClose={handleQuickTagDismissSkip}
         section={captureLinkedSection ?? activeSectionObj?.name ?? activeSection ?? "—"}
         timecode={captureTimecodeMs != null ? formatTime(captureTimecodeMs / 1000) : formatTime(currentTime)}
         onSubmit={handleQuickTagSubmit}

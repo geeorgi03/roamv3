@@ -12,7 +12,7 @@ export type PendingClip = {
   retryCount: number;
   type_tag?: string | null;
   feel_tags?: string[];
-  note?: string;
+  notes?: string;
   section_id?: string | null;
   timecode_ms?: number | null;
   session_id?: string | null;

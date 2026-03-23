@@ -6,7 +6,7 @@ interface QuickTagSheetProps {
   onClose: () => void;
   section?: string;
   timecode?: string;
-  onSubmit?: (data: { type_tag: string | null; feel_tags: string[]; note?: string }) => void;
+  onSubmit?: (data: { type_tag: string | null; feel_tags: string[]; notes?: string }) => void;
   saveError?: string | null;
   onRetry?: () => void;
   onSaveToInbox?: () => void;
@@ -37,7 +37,7 @@ export default function QuickTagSheet({ isOpen, onClose, section = "Chorus", tim
 
   const handleSave = () => {
     if (onSubmit) {
-      onSubmit({ type_tag: selectedType, feel_tags: selectedFeels, note: note || undefined });
+      onSubmit({ type_tag: selectedType, feel_tags: selectedFeels, notes: note || undefined });
     }
   };
 
@@ -46,6 +46,7 @@ export default function QuickTagSheet({ isOpen, onClose, section = "Chorus", tim
       {/* Background overlay */}
       <div 
         className="absolute inset-0" 
+        onClick={onClose}
         style={{ backgroundColor: 'rgba(13, 13, 15, 0.6)' }}
       />
       
@@ -272,7 +273,7 @@ export default function QuickTagSheet({ isOpen, onClose, section = "Chorus", tim
             <button
               onClick={() => {
                 if (onSubmit) {
-                  onSubmit({ type_tag: null, feel_tags: [], note: undefined });
+                  onSubmit({ type_tag: null, feel_tags: [], notes: undefined });
                 }
               }}
               className="flex-1 rounded-lg flex items-center justify-center gap-2"

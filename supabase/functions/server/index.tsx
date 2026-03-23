@@ -495,7 +495,7 @@ app.post("/make-server-837ff822/sessions/:sessionId/clips", async (c) => {
       if (clipData[key] !== undefined) insertPayload[key] = clipData[key];
     }
 
-    // Map singular 'note' field from QuickTag flow to 'notes' column
+    // Temporary backward compatibility: accept legacy singular 'note' from older QuickTag clients.
     if (clipData.note !== undefined && insertPayload.notes === undefined) {
       insertPayload.notes = clipData.note;
     }
@@ -555,7 +555,7 @@ app.patch("/make-server-837ff822/sessions/:sessionId/clips/:clipId", async (c) =
     const clipId = c.req.param('clipId');
     const updates = await c.req.json();
     
-    // Apply note -> notes mapping if needed
+    // Temporary backward compatibility: map legacy 'note' -> 'notes' for older clients.
     if (updates.note && !updates.notes) {
       updates.notes = updates.note;
       delete updates.note;
