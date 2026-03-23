@@ -491,7 +491,7 @@ export default function SessionWorkbench() {
     if (!failedSubmitPayload && !captureBlob) return;
     
     const blob = failedSubmitPayload?.blob || captureBlob;
-    const data = failedSubmitPayload?.data || { type_tag: 'Idea', feel_tags: [], note: undefined };
+    const data = failedSubmitPayload?.data || { type_tag: null, feel_tags: [], note: undefined };
     const timecodeMs = failedSubmitPayload?.timecodeMs || captureTimecodeMs;
     const linkedSection = failedSubmitPayload?.linkedSection || captureLinkedSection;
     

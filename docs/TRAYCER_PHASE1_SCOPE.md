@@ -83,12 +83,12 @@
 ## Finalized Decisions / Edge-case Policies
 
 ### Capture and Inbox Policies
-- **Quick-save "Later" routing**: Selecting "Later" on the quick-save sheet dismisses the sheet in one tap with no confirmation and returns to the home screen. The clip remains in the Inbox with no session assignment.
+- **Quick-save "Later" routing**: Selecting "Later" on the quick-save sheet dismisses the sheet in one tap with no confirmation. If the user entered from the capture-first flow, they are routed to the Inbox screen; from any other entry point, the app returns to the previous screen. The clip remains in the Inbox with no session assignment.
 - **Inbox persistence rules**: Clips in the Inbox do not expire or delete automatically. After 48 hours, unorganized clips show a gentle nudge prompt: "You have 3 ideas waiting — want to do something with them?" This is a suggestion, not a warning.
 - **Voice memo capture**: Long-press the record button to enter voice-only mode. Release to stop and save as an audio note in the Inbox. Uses the same quick-save sheet as video capture.
 
 ### Loop and Session Policies
-- **Loop draft persistence**: Loop regions persist across app sessions and are saved as part of the session data. Multiple non-overlapping regions can coexist on the repetition track.
+- **Loop draft persistence**: Draft loop regions are visible in the current session only and do not persist across reload unless the user explicitly taps "Done" to save them. Multiple non-overlapping regions can coexist on the repetition track.
 - **Loop gap tolerance**: Target seamless loop gap ≤ 50ms. Requires pre-buffering the loop start 100ms before loop end. Fallback behavior: brief visual flash instead of audio stutter if target cannot be met.
 
 ### Offline and Connectivity Policies
@@ -195,28 +195,16 @@
 ### Local Development Setup (Web Prototype)
 ```bash
 # Environment variables required
-NEXT_PUBLIC_SUPABASE_URL=your_supabase_project_url
-NEXT_PUBLIC_SUPABASE_ANON_KEY=your_supabase_anon_key
+VITE_SUPABASE_URL=your_supabase_project_url
+VITE_SUPABASE_ANON_KEY=your_supabase_anon_key
 
 # Start web development server
-pnpm --filter @roam/web dev
-```
-
-### Testing Commands
-```bash
-# Run web app tests
-pnpm --filter @roam/web test
-
-# Run integration tests
-pnpm --filter @roam/web test:integration
-
-# Test API endpoints locally
-curl http://localhost:3000/api/health
+pnpm dev
 ```
 
 ### Environment Variables
-- `NEXT_PUBLIC_SUPABASE_URL` - Supabase project URL
-- `NEXT_PUBLIC_SUPABASE_ANON_KEY` - Anonymous key for client operations
+- `VITE_SUPABASE_URL` - Supabase project URL
+- `VITE_SUPABASE_ANON_KEY` - Anonymous key for client operations
 
 ### Deployment Notes
 - Server runs on Deno with Hono framework
