@@ -1187,14 +1187,13 @@ app.get("/make-server-837ff822/share/:token", async (c) => {
   }
 });
 
-// POST /share/:token/response — submit viewer response (backward compatible)
 app.post("/make-server-837ff822/share/:token/response", async (c) => {
   try {
     const token = c.req.param('token');
 
     const { data, error } = await supabaseAdmin
       .from('share_tokens')
-      .select('id, clip_id')
+      .select('id, clip_id, session_id')
       .eq('token', token)
       .is('revoked_at', null)
       .maybeSingle();
@@ -1207,7 +1206,37 @@ app.post("/make-server-837ff822/share/:token/response", async (c) => {
       console.log(`Error verifying share token: ${msg}`);
       return c.json({ error: 'Failed to save response' }, 500);
     }
-    if (!data?.clip_id) return c.json({ error: 'Share link not found' }, 404);
+    // Resolve clip_id based on token type
+    let resolvedClipId;
+    
+    if (data?.clip_id) {
+      // Clip-level token - use existing clip_id
+      resolvedClipId = data.clip_id;
+    } else if (data?.session_id && !data.clip_id) {
+      // Session-level token - find first ready clip in session
+      const { data: clipData, error: clipErr } = await supabaseAdmin
+        .from('clips')
+        .select('id')
+        .eq('session_id', data.session_id)
+        .eq('status', 'ready')
+        .order('created_at', { ascending: true })
+        .limit(1)
+        .maybeSingle();
+        
+      if (clipErr) {
+        console.log(`Error resolving clip for session: ${clipErr.message}`);
+        return c.json({ error: 'Failed to save response' }, 500);
+      }
+      
+      if (!clipData) {
+        return c.json({ error: 'No clip available for this session share link' }, 404);
+      }
+      
+      resolvedClipId = clipData.id;
+    } else {
+      // Malformed/legacy row or token not found
+      return c.json({ error: 'Share link not found' }, 404);
+    }
 
     const body = await c.req.json();
     
@@ -1216,7 +1245,7 @@ app.post("/make-server-837ff822/share/:token/response", async (c) => {
     if (!responseText?.trim()) return c.json({ error: 'Response text is required' }, 400);
 
     const { error: insErr } = await supabaseAdmin.from('clip_responses').insert({
-      clip_id: data.clip_id,
+      clip_id: resolvedClipId,
       token_id: data.id,
       text: String(responseText).trim(),
     });
@@ -1226,7 +1255,7 @@ app.post("/make-server-837ff822/share/:token/response", async (c) => {
       return c.json({ error: 'Failed to save response' }, 500);
     }
 
-    console.log(`Response saved for clip ${data.clip_id}`);
+    console.log(`Response saved for clip ${resolvedClipId}`);
     return c.json({ success: true });
   } catch (error) {
     console.log(`Error saving response: ${error}`);
