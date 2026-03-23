@@ -386,7 +386,7 @@ app.get("/make-server-837ff822/clips", async (c) => {
     if (type_tag) q = q.eq('type_tag', type_tag);
     if (feel_tags.length > 0) q = q.contains('feel_tags', feel_tags);
     if (section_id) q = q.eq('section_id', section_id);
-    if (unassigned) q = q.is('session_id', null);
+    if (unassigned) q = q.is('section_id', null);
 
     const { data: rows, error } = await q;
     if (error) {

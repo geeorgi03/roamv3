@@ -91,6 +91,12 @@ export default function SessionWorkbench() {
   // Optimistic clips state for quick tag UI updates
   const [optimisticClips, setOptimisticClips] = useState<Clip[]>([]);
   
+  // Keep the latest `clips` value available inside async sync callbacks.
+  const clipsRef = useRef<Clip[]>(clips);
+  useEffect(() => {
+    clipsRef.current = clips;
+  }, [clips]);
+  
   // Failed submit payload for retry functionality
   const [failedSubmitPayload, setFailedSubmitPayload] = useState<{
     blob: Blob;
@@ -247,6 +253,31 @@ export default function SessionWorkbench() {
     }
   }, [activeTab, playingNoteId]);
 
+  const refetchCrossSessionClipsForCurrentFilters = async () => {
+    if (!ideasCrossSession) return;
+
+    setCrossSessionLoading(true);
+    setCrossSessionError(null);
+
+    try {
+      const result = await fetchCrossSessionClips({
+        typeTag: ideasTypeFilter,
+        feelTags: ideasFeelFilters,
+        sectionId: ideasSectionFilter,
+        unassigned: ideasUnassignedOnly,
+      });
+
+      setCrossSessionClips(result.clips);
+      setCrossSessionFetchFailed(false);
+    } catch (err) {
+      setCrossSessionError("Couldn't load other sessions");
+      setCrossSessionFetchFailed(true);
+      console.error("Error fetching cross-session clips:", err);
+    } finally {
+      setCrossSessionLoading(false);
+    }
+  };
+
   // Auto-sync on reconnect
   useEffect(() => {
     if (online) {
@@ -299,15 +330,55 @@ export default function SessionWorkbench() {
             if (shouldRefresh) refresh();
             return result;
           };
-          await syncPendingClips(saveClipFn, uploadFile, (tempId: string) => {
-            setOptimisticClips(prev => prev.filter(c => c.id !== tempId));
+          await syncPendingClips(saveClipFn, uploadFile, (tempId: string, serverId?: string) => {
+            // Ensure we don't remove the optimistic entry until the server-confirmed clip
+            // is visible in `clips` (prevents a "missing card" flash on reconnect).
+            refresh();
+
+            const crossSessionRefetchPromise =
+              serverId && ideasCrossSession
+                ? refetchCrossSessionClipsForCurrentFilters()
+                : Promise.resolve<void>(undefined);
+
+            if (!serverId) {
+              setOptimisticClips((prev) => prev.filter((c) => c.id !== tempId));
+              return;
+            }
+
+            if (clipsRef.current.some((c) => c.id === serverId)) {
+              void crossSessionRefetchPromise.finally(() => {
+                setOptimisticClips((prev) => prev.filter((c) => c.id !== tempId));
+              });
+              return;
+            }
+
+            void (async () => {
+              const timeoutMs = 5000;
+              const intervalMs = 200;
+              const startedAt = Date.now();
+
+              await new Promise<void>((resolve) => {
+                const interval = setInterval(() => {
+                  const present = clipsRef.current.some((c) => c.id === serverId);
+                  const timedOut = Date.now() - startedAt > timeoutMs;
+
+                  if (present || timedOut) {
+                    clearInterval(interval);
+                    resolve();
+                  }
+                }, intervalMs);
+              });
+
+              await crossSessionRefetchPromise;
+              setOptimisticClips((prev) => prev.filter((c) => c.id !== tempId));
+            })();
           });
         } catch (error) {
           console.error('Failed to sync pending clips:', error);
         }
       })();
     }
-  }, [online, addClip]);
+  }, [online, addClip, refresh]);
 
   useEffect(() => {
     if (loops.length === 0) {
@@ -552,6 +623,11 @@ export default function SessionWorkbench() {
         timecode_ms: timecodeMs,
         tags: [],
       });
+
+      // Reconcile cross-session source state immediately on successful retry
+      if (ideasCrossSession) {
+        await refetchCrossSessionClipsForCurrentFilters();
+      }
       
       if (failedSubmitPayload?.tempId) {
         setOptimisticClips(prev => prev.filter(clip => clip.id !== failedSubmitPayload.tempId));
@@ -2353,7 +2429,7 @@ export default function SessionWorkbench() {
                               fontFamily: 'var(--font-body)',
                             }}
                           >
-                            {clip.tags?.[0] || 'No note'}
+                            {clip.notes || 'No note'}
                           </div>
 
                           {/* Session name for cross-session */}
