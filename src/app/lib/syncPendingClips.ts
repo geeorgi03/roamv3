@@ -14,7 +14,8 @@ type SaveClipFn = (clipData: {
   note?: string;
   section_id?: string | null;
   timecode_ms?: number | null;
-}) => Promise<unknown>;
+  session_id?: string | null;
+}) => Promise<{ id?: string; [key: string]: unknown } | null | undefined>;
 
 function dataUrlToBlob(dataUrl: string): { blob: Blob; mimeType: string } {
   const [header, base64] = dataUrl.split(",");
@@ -26,7 +27,7 @@ function dataUrlToBlob(dataUrl: string): { blob: Blob; mimeType: string } {
   return { blob: new Blob([bytes], { type: mimeType }), mimeType };
 }
 
-export async function syncPendingClips(saveClip: SaveClipFn, uploadFile: UploadFileFn, onSynced?: (tempId: string) => void) {
+export async function syncPendingClips(saveClip: SaveClipFn, uploadFile: UploadFileFn, onSynced?: (tempId: string, serverId?: string) => void) {
   const candidates = getPendingClips().filter((c) => c.status === "pending" || c.status === "failed");
 
   for (const pending of candidates) {
@@ -46,11 +47,13 @@ export async function syncPendingClips(saveClip: SaveClipFn, uploadFile: UploadF
         note: pending.note,
         section_id: pending.section_id,
         timecode_ms: pending.timecode_ms,
+        session_id: pending.session_id,
       };
 
-      await saveClip(clipData);
+      const result = await saveClip(clipData);
+      const serverId = result?.id;
       removePendingClip(pending.tempId);
-      onSynced?.(pending.tempId);
+      onSynced?.(pending.tempId, serverId);
     } catch (e) {
       const current: PendingClip | undefined = getPendingClips().find((c) => c.tempId === pending.tempId);
       const retryCount = (current?.retryCount ?? pending.retryCount ?? 0) + 1;

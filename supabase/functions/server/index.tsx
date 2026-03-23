@@ -555,9 +555,41 @@ app.patch("/make-server-837ff822/sessions/:sessionId/clips/:clipId", async (c) =
     const clipId = c.req.param('clipId');
     const updates = await c.req.json();
     
+    // Apply note -> notes mapping if needed
+    if (updates.note && !updates.notes) {
+      updates.notes = updates.note;
+      delete updates.note;
+    }
+    
+    // Allowlist of safe updatable fields
+    const allowedFields = [
+      'type_tag',
+      'feel_tags', 
+      'section_id',
+      'timecode_ms',
+      'notes',
+      'label',
+      'upload_status',
+      'mux_upload_id',
+      'mux_asset_id', 
+      'mux_playback_id',
+      'mux_passthrough',
+      'video_storage_path',
+      'audio_storage_path',
+      'thumbnail_storage_path'
+    ];
+    
+    // Filter updates to only allow safe fields
+    const sanitizedUpdates: Record<string, unknown> = {};
+    for (const field of allowedFields) {
+      if (field in updates) {
+        sanitizedUpdates[field] = updates[field];
+      }
+    }
+    
     const { data, error } = await supabaseAdmin
       .from('clips')
-      .update(updates)
+      .update(sanitizedUpdates)
       .eq('id', clipId)
       .eq('user_id', userId)
       .select()

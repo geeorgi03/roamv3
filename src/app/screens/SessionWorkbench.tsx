@@ -267,7 +267,10 @@ export default function SessionWorkbench() {
               tags: [],
             });
           };
-          await syncPendingClips(saveClipFn, uploadFile);
+          await syncPendingClips(saveClipFn, uploadFile, (tempId: string) => {
+            setOptimisticClips(prev => prev.filter(c => c.id !== tempId));
+            refresh();
+          });
         } catch (error) {
           console.error('Failed to sync pending clips:', error);
         }

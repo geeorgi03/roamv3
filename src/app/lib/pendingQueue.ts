@@ -2,6 +2,7 @@ export type PendingClipStatus = "pending" | "syncing" | "failed";
 
 export type PendingClip = {
   tempId: string;
+  localId?: string;
   mediaType: "video" | "audio";
   duration?: number;
   createdAt: string;
@@ -44,7 +45,12 @@ export function getPendingClips(): PendingClip[] {
 
 export function addPendingClip(clip: PendingClip): void {
   const all = readAll();
-  all.push(clip);
+  // Auto-populate localId from tempId if not explicitly provided
+  const clipWithLocalId = {
+    ...clip,
+    localId: clip.localId || clip.tempId
+  };
+  all.push(clipWithLocalId);
   writeAll(all);
 }
 
