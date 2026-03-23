@@ -26,7 +26,7 @@ function dataUrlToBlob(dataUrl: string): { blob: Blob; mimeType: string } {
   return { blob: new Blob([bytes], { type: mimeType }), mimeType };
 }
 
-export async function syncPendingClips(saveClip: SaveClipFn, uploadFile: UploadFileFn) {
+export async function syncPendingClips(saveClip: SaveClipFn, uploadFile: UploadFileFn, onSynced?: (tempId: string) => void) {
   const candidates = getPendingClips().filter((c) => c.status === "pending" || c.status === "failed");
 
   for (const pending of candidates) {
@@ -50,6 +50,7 @@ export async function syncPendingClips(saveClip: SaveClipFn, uploadFile: UploadF
 
       await saveClip(clipData);
       removePendingClip(pending.tempId);
+      onSynced?.(pending.tempId);
     } catch (e) {
       const current: PendingClip | undefined = getPendingClips().find((c) => c.tempId === pending.tempId);
       const retryCount = (current?.retryCount ?? pending.retryCount ?? 0) + 1;

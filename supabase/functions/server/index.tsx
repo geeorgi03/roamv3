@@ -464,6 +464,9 @@ app.post("/make-server-837ff822/sessions/:sessionId/clips", async (c) => {
     }
     
     const sessionId = c.req.param('sessionId');
+    // IMPORTANT: session_id is ALWAYS taken from the URL path parameter, never from the request body.
+    // This ensures offline clips synced via syncPendingClips are always persisted into the session
+    // that was active at capture time — not the currently open session.
     const clipData = await c.req.json() as Record<string, unknown>;
     const feel_tags = Array.isArray(clipData.feel_tags) ? clipData.feel_tags : [];
     const clipId = (clipData.id as string) || crypto.randomUUID();
@@ -490,6 +493,11 @@ app.post("/make-server-837ff822/sessions/:sessionId/clips", async (c) => {
 
     for (const key of CLIP_OPTIONAL_DB_KEYS) {
       if (clipData[key] !== undefined) insertPayload[key] = clipData[key];
+    }
+
+    // Map singular 'note' field from QuickTag flow to 'notes' column
+    if (clipData.note !== undefined && insertPayload.notes === undefined) {
+      insertPayload.notes = clipData.note;
     }
 
     const { data, error } = await supabaseAdmin
@@ -1219,7 +1227,26 @@ app.get("/make-server-837ff822/sessions/:sessionId/clips/:clipId/responses", asy
     const userId = await getAuthenticatedUserId(c.req.raw);
     if (!userId) return c.json({ error: 'Unauthorized' }, 401);
 
+    const sessionId = c.req.param('sessionId');
     const clipId = c.req.param('clipId');
+
+    // Verify ownership before querying responses
+    const { data: ownedClip, error: ownErr } = await supabaseAdmin
+      .from('clips')
+      .select('id')
+      .eq('id', clipId)
+      .eq('session_id', sessionId)
+      .eq('user_id', userId)
+      .maybeSingle();
+
+    if (ownErr) {
+      console.log(`Error verifying clip ownership for responses: ${ownErr.message}`);
+      return c.json({ error: 'Failed to fetch responses' }, 500);
+    }
+    if (!ownedClip) {
+      return c.json({ error: 'Clip not found' }, 404);
+    }
+
     const { data, error } = await supabaseAdmin
       .from('clip_responses')
       .select('id, text, created_at')
@@ -1329,8 +1356,19 @@ app.get("/make-server-837ff822/inbox", async (c) => {
     const userId = await getAuthenticatedUserId(c.req.raw);
     if (!userId) return c.json({ error: 'Unauthorized' }, 401);
 
-    const clips = await kv.getByPrefix(`inbox:${userId}:`);
-    const normalized = (clips || []).map((clip) => normalizeInboxClip(clip));
+    const { data: rows, error } = await supabaseAdmin
+      .from('clips')
+      .select('*')
+      .eq('user_id', userId)
+      .is('session_id', null)
+      .order('recorded_at', { ascending: false });
+
+    if (error) {
+      console.log(`Error fetching inbox: ${error.message}`);
+      return c.json({ error: 'Failed to fetch inbox' }, 500);
+    }
+
+    const normalized = (rows ?? []).map((row) => normalizeInboxClip(row));
     return c.json({ clips: normalized });
   } catch (error) {
     console.log(`Error fetching inbox: ${error}`);
@@ -1357,9 +1395,34 @@ app.post("/make-server-837ff822/inbox", async (c) => {
       user_id: userId,
     });
 
-    await kv.set(`inbox:${userId}:${clipId}`, clip);
+    const insertPayload: Record<string, unknown> = {
+      id: clipId,
+      user_id: userId,
+      session_id: null,
+      local_id: firstString(clip.local_id, clip.id) ?? clipId,
+      label: firstString(clip.label) ?? 'Clip',
+      media_type: clip.media_type,
+      video_storage_path: firstString(clip.video_storage_path),
+      audio_storage_path: firstString(clip.audio_storage_path),
+      thumbnail_storage_path: firstString(clip.thumbnail_storage_path),
+      duration_ms: firstNumber(clip.duration_ms),
+      recorded_at: firstString(clip.recorded_at) ?? new Date().toISOString(),
+      upload_status: firstString(clip.upload_status) ?? 'local',
+    };
+
+    const { data: row, error } = await supabaseAdmin
+      .from('clips')
+      .insert(insertPayload)
+      .select()
+      .single();
+
+    if (error) {
+      console.log(`Error saving inbox clip: ${error.message}`);
+      return c.json({ error: 'Failed to save clip' }, 500);
+    }
+
     console.log(`Inbox clip saved: ${clipId}`);
-    return c.json({ clip });
+    return c.json({ clip: normalizeInboxClip(row) });
   } catch (error) {
     console.log(`Error saving inbox clip: ${error}`);
     return c.json({ error: 'Failed to save clip' }, 500);
@@ -1379,10 +1442,24 @@ app.patch("/make-server-837ff822/inbox/:clipId/assign", async (c) => {
 
     if (!sessionId) return c.json({ error: 'sessionId is required' }, 400);
 
-    const clip = await kv.get(`inbox:${userId}:${clipId}`);
-    if (!clip) return c.json({ error: 'Clip not found in inbox' }, 404);
+    // Query clip from Postgres instead of KV
+    const { data: clipRow, error: clipErr } = await supabaseAdmin
+      .from('clips')
+      .select('*')
+      .eq('id', clipId)
+      .eq('user_id', userId)
+      .is('session_id', null)
+      .maybeSingle();
 
-    const normalized = normalizeInboxClip(clip);
+    if (clipErr) {
+      console.log(`Error fetching inbox clip for assign: ${clipErr.message}`);
+      return c.json({ error: 'Failed to assign clip' }, 500);
+    }
+    if (!clipRow) {
+      return c.json({ error: 'Clip not found in inbox' }, 404);
+    }
+
+    const normalized = normalizeInboxClip(clipRow);
     const sectionId =
       section ?? firstString(normalized.section, normalized.section_id) ?? null;
     const local_id =
@@ -1441,7 +1518,7 @@ app.patch("/make-server-837ff822/inbox/:clipId/assign", async (c) => {
       return c.json({ error: 'Failed to assign clip' }, 500);
     }
 
-    await kv.del(`inbox:${userId}:${clipId}`);
+    // No need to delete from KV - clip is already in Postgres and updated in place
 
     console.log(`Inbox clip ${clipId} assigned to session ${sessionId}`);
     return c.json({ clip: enrichClipRow(row as Record<string, unknown>) });
@@ -1458,7 +1535,19 @@ app.delete("/make-server-837ff822/inbox/:clipId", async (c) => {
     if (!userId) return c.json({ error: 'Unauthorized' }, 401);
 
     const clipId = c.req.param('clipId');
-    await kv.del(`inbox:${userId}:${clipId}`);
+    
+    const { error } = await supabaseAdmin
+      .from('clips')
+      .delete()
+      .eq('id', clipId)
+      .eq('user_id', userId)
+      .is('session_id', null);
+
+    if (error) {
+      console.log(`Error deleting inbox clip: ${error.message}`);
+      return c.json({ error: 'Failed to delete clip' }, 500);
+    }
+    
     return c.json({ success: true });
   } catch (error) {
     console.log(`Error deleting inbox clip: ${error}`);

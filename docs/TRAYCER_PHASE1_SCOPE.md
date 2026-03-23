@@ -198,8 +198,11 @@
 VITE_SUPABASE_URL=your_supabase_project_url
 VITE_SUPABASE_ANON_KEY=your_supabase_anon_key
 
-# Start web development server
+# Start web development server (run from project root directory)
 pnpm dev
+
+# Health check verification (after server starts)
+curl http://localhost:5173/
 ```
 
 ### Environment Variables

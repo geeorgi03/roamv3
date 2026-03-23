@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { Video } from "lucide-react";
 
 interface QuickTagSheetProps {
@@ -17,6 +17,15 @@ export default function QuickTagSheet({ isOpen, onClose, section = "Chorus", tim
   const [selectedType, setSelectedType] = useState<string | null>(null);
   const [selectedFeels, setSelectedFeels] = useState<string[]>([]);
   const [note, setNote] = useState("");
+
+  // Reset state when sheet opens
+  useEffect(() => {
+    if (isOpen) {
+      setSelectedType(null);
+      setSelectedFeels([]);
+      setNote("");
+    }
+  }, [isOpen]);
 
   if (!isOpen) return null;
 
@@ -38,7 +47,6 @@ export default function QuickTagSheet({ isOpen, onClose, section = "Chorus", tim
       <div 
         className="absolute inset-0" 
         style={{ backgroundColor: 'rgba(13, 13, 15, 0.6)' }}
-        onClick={onClose}
       />
       
       {/* Sheet */}
@@ -266,7 +274,6 @@ export default function QuickTagSheet({ isOpen, onClose, section = "Chorus", tim
                 if (onSubmit) {
                   onSubmit({ type_tag: null, feel_tags: [], note: undefined });
                 }
-                onClose();
               }}
               className="flex-1 rounded-lg flex items-center justify-center gap-2"
               style={{

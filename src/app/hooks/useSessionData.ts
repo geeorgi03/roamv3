@@ -33,6 +33,8 @@ export interface Clip {
   timecode_ms?: number | null;
   session_name?: string;
   upload_status?: 'local' | 'pending' | 'uploaded' | 'failed';
+  notes?: string;
+  duration?: number;
 }
 
 export interface NotePin {

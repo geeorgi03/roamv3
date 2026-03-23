@@ -362,7 +362,7 @@ export default function SessionWorkbench() {
       thumbnailUrl: '',
       duration: 0,
       upload_status: 'pending',
-      created_at: new Date().toISOString(),
+      createdAt: new Date().toISOString(),
     };
     
     setOptimisticClips(prev => [optimisticClip, ...prev]);
@@ -700,7 +700,7 @@ export default function SessionWorkbench() {
 
   const workspaceClips = useMemo(() => {
     const mergedClips = [...optimisticClips, ...clips];
-    return mergedClips.filter((c) => (activeSection ? c.section === activeSection : true));
+    return mergedClips.filter((c) => (activeSection ? c.section === activeSection || c.section_id === activeSection : true));
   }, [clips, optimisticClips, activeSection]);
 
   const shareClips = useMemo(() => [...optimisticClips, ...clips], [clips, optimisticClips]);
