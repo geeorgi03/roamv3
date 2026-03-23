@@ -464,7 +464,7 @@ export default function SessionWorkbench() {
         type: 'idea',
         type_tag: data.type_tag,
         feel_tags: data.feel_tags,
-        note: data.note,
+        notes: data.note,
         section_id: linkedSection ?? activeSection,
         timecode_ms: timecodeMs,
         tags: [],

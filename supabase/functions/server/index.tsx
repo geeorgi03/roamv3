@@ -1442,6 +1442,22 @@ app.patch("/make-server-837ff822/inbox/:clipId/assign", async (c) => {
 
     if (!sessionId) return c.json({ error: 'sessionId is required' }, 400);
 
+    // Validate target session ownership before proceeding
+    const { data: sessionRow, error: sessionErr } = await supabaseAdmin
+      .from('sessions')
+      .select('id')
+      .eq('id', sessionId)
+      .eq('user_id', userId)
+      .maybeSingle();
+
+    if (sessionErr) {
+      console.log(`Error verifying session ownership for assign: ${sessionErr.message}`);
+      return c.json({ error: 'Failed to assign clip' }, 500);
+    }
+    if (!sessionRow) {
+      return c.json({ error: 'Session not found' }, 404);
+    }
+
     // Query clip from Postgres instead of KV
     const { data: clipRow, error: clipErr } = await supabaseAdmin
       .from('clips')
