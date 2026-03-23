@@ -48,6 +48,99 @@ const getAuthenticatedUserId = async (request: Request): Promise<string | null> 
   return user.id;
 };
 
+// --- Session ↔ Postgres sync (KV holds full session blob; Postgres row for FKs + share ownership) ---
+
+function sessionDisplayName(session: Record<string, unknown>): string {
+  const name = session.name;
+  if (typeof name === 'string' && name.trim()) return name.trim();
+  const song = session.songName;
+  if (typeof song === 'string' && song.trim()) return song.trim();
+  return 'Untitled Session';
+}
+
+async function ensureUsersRowForSessionSync(
+  userId: string,
+): Promise<{ ok: true } | { ok: false; message: string }> {
+  const { data, error } = await supabaseAdmin.auth.admin.getUserById(userId);
+  if (error || !data?.user?.email) {
+    const msg = error?.message ?? 'User email unavailable for session sync';
+    console.log(`ensureUsersRowForSessionSync: ${msg}`);
+    return { ok: false, message: msg };
+  }
+  const { error: upErr } = await supabaseAdmin
+    .from('users')
+    .upsert({ id: userId, email: data.user.email, plan: 'free' }, { onConflict: 'id' });
+  if (upErr) {
+    console.log(`ensureUsersRowForSessionSync users upsert: ${upErr.message}`);
+    return { ok: false, message: upErr.message };
+  }
+  return { ok: true };
+}
+
+async function upsertSessionRowFromKvSession(
+  userId: string,
+  sessionId: string,
+  session: Record<string, unknown>,
+): Promise<{ error: string | null }> {
+  const ensured = await ensureUsersRowForSessionSync(userId);
+  if (!ensured.ok) return { error: ensured.message };
+
+  const payload: Record<string, unknown> = {
+    id: sessionId,
+    user_id: userId,
+    name: sessionDisplayName(session),
+  };
+  const createdAt = session.createdAt;
+  if (typeof createdAt === 'string' && createdAt) {
+    payload.created_at = createdAt;
+  }
+
+  const { error } = await supabaseAdmin.from('sessions').upsert(payload, { onConflict: 'id' });
+  if (error) {
+    console.log(`upsertSessionRowFromKvSession: ${error.message}`);
+    return { error: error.message };
+  }
+  return { error: null };
+}
+
+/** If Postgres has no row yet, backfill from KV so share routes can verify ownership. */
+async function ensurePostgresSessionFromKvForUser(
+  userId: string,
+  sessionId: string,
+): Promise<{ ok: true } | { ok: false; notFound: true } | { ok: false; error: string }> {
+  const { data: existing, error: selErr } = await supabaseAdmin
+    .from('sessions')
+    .select('id')
+    .eq('id', sessionId)
+    .eq('user_id', userId)
+    .maybeSingle();
+  if (selErr) {
+    return { ok: false, error: selErr.message };
+  }
+  if (existing) return { ok: true };
+
+  const kvSession = await kv.get(`session:${userId}:${sessionId}`);
+  if (!kvSession || typeof kvSession !== 'object') {
+    return { ok: false, notFound: true };
+  }
+  const { error: syncErr } = await upsertSessionRowFromKvSession(
+    userId,
+    sessionId,
+    kvSession as Record<string, unknown>,
+  );
+  if (syncErr) return { ok: false, error: syncErr };
+
+  const { data: after, error: againErr } = await supabaseAdmin
+    .from('sessions')
+    .select('id')
+    .eq('id', sessionId)
+    .eq('user_id', userId)
+    .maybeSingle();
+  if (againErr) return { ok: false, error: againErr.message };
+  if (!after) return { ok: false, notFound: true };
+  return { ok: true };
+}
+
 // Enable logger
 app.use('*', logger(console.log));
 
@@ -176,6 +269,12 @@ app.post("/make-server-837ff822/sessions", async (c) => {
     };
     
     await kv.set(`session:${userId}:${sessionId}`, session);
+
+    const { error: pgErr } = await upsertSessionRowFromKvSession(userId, sessionId, session as Record<string, unknown>);
+    if (pgErr) {
+      return c.json({ error: 'Failed to persist session' }, 500);
+    }
+
     return c.json({ session });
   } catch (error) {
     console.log(`Error creating session: ${error}`);
@@ -200,7 +299,12 @@ app.put("/make-server-837ff822/sessions/:id", async (c) => {
     
     const session = { ...existing, ...updates, id: sessionId, userId };
     await kv.set(`session:${userId}:${sessionId}`, session);
-    
+
+    const { error: pgErr } = await upsertSessionRowFromKvSession(userId, sessionId, session as Record<string, unknown>);
+    if (pgErr) {
+      return c.json({ error: 'Failed to persist session' }, 500);
+    }
+
     return c.json({ session });
   } catch (error) {
     console.log(`Error updating session: ${error}`);
@@ -216,6 +320,17 @@ app.delete("/make-server-837ff822/sessions/:id", async (c) => {
     }
     
     const sessionId = c.req.param('id');
+
+    const { error: pgDelErr } = await supabaseAdmin
+      .from('sessions')
+      .delete()
+      .eq('id', sessionId)
+      .eq('user_id', userId);
+    if (pgDelErr) {
+      console.log(`Error deleting session from Postgres: ${pgDelErr.message}`);
+      return c.json({ error: 'Failed to delete session' }, 500);
+    }
+
     await kv.del(`session:${userId}:${sessionId}`);
     
     // Also delete related data (clips live in Postgres with ON DELETE CASCADE)
@@ -723,16 +838,6 @@ app.delete("/make-server-837ff822/sessions/:sessionId/marks/:markId", async (c) 
 
 // ==================== SHARE ROUTES ====================
 
-// Helper to generate share tokens
-function generateShareToken(): string {
-  const chars = 'ABCDEFGHJKLMNPQRSTUVWXYZabcdefghjkmnpqrstuvwxyz23456789';
-  let token = '';
-  for (let i = 0; i < 12; i++) {
-    token += chars.charAt(Math.floor(Math.random() * chars.length));
-  }
-  return token;
-}
-
 // POST /sessions/:sessionId/share — generate session share link
 app.post("/make-server-837ff822/sessions/:sessionId/share", async (c) => {
   try {
@@ -740,36 +845,67 @@ app.post("/make-server-837ff822/sessions/:sessionId/share", async (c) => {
     if (!userId) {
       return c.json({ error: 'Unauthorized' }, 401);
     }
-    
+
     const sessionId = c.req.param('sessionId');
-    const session = await kv.get(`session:${userId}:${sessionId}`);
-    
-    if (!session) {
-      return c.json({ error: 'Session not found' }, 404);
+
+    const resolved = await ensurePostgresSessionFromKvForUser(userId, sessionId);
+    if (!resolved.ok) {
+      if ('notFound' in resolved && resolved.notFound) {
+        return c.json({ error: 'Session not found' }, 404);
+      }
+      console.log(`Error verifying session ownership for share: ${resolved.error}`);
+      return c.json({ error: 'Failed to generate share link' }, 500);
     }
-    
-    // Check for existing share token
-    const existingShare = await kv.get(`share:session:${sessionId}`);
-    if (existingShare?.token) {
-      const baseUrl = Deno.env.get('PUBLIC_SITE_URL') || 'https://app.example.com';
-      return c.json({ token: existingShare.token, url: `${baseUrl}/share/${existingShare.token}` });
+
+    const { data: existing, error: existingErr } = await supabaseAdmin
+      .from('share_tokens')
+      .select('token, mode')
+      .eq('session_id', sessionId)
+      .is('clip_id', null)
+      .is('revoked_at', null)
+      .maybeSingle();
+
+    if (existingErr) {
+      console.log(`Error looking up session share: ${existingErr.message}`);
+      return c.json({ error: 'Failed to generate share link' }, 500);
     }
-    
-    // Generate new share token
-    const token = generateShareToken();
-    const shareData = {
-      token,
-      sessionId,
-      userId,
-      type: 'session',
-      createdAt: new Date().toISOString(),
-    };
-    
-    await kv.set(`share:session:${sessionId}`, shareData);
-    await kv.set(`share:token:${token}`, shareData);
-    
+
     const baseUrl = Deno.env.get('PUBLIC_SITE_URL') || 'https://app.example.com';
-    return c.json({ token, url: `${baseUrl}/share/${token}` });
+
+    if (existing?.token) {
+      const tokenStr = String(existing.token);
+      return c.json({
+        token: tokenStr,
+        url: `${baseUrl}/s/${tokenStr}`,
+        mode: existing.mode ?? 'lightweight',
+      });
+    }
+
+    let body: Record<string, unknown> = {};
+    try {
+      body = (await c.req.json()) as Record<string, unknown>;
+    } catch {
+      // Body may be absent
+    }
+    const mode = (body?.mode as string) ?? 'lightweight';
+
+    const { data: inserted, error: insertErr } = await supabaseAdmin
+      .from('share_tokens')
+      .insert({ session_id: sessionId, clip_id: null, mode })
+      .select('token, mode')
+      .single();
+
+    if (insertErr || !inserted?.token) {
+      console.log(`Error inserting session share: ${insertErr?.message}`);
+      return c.json({ error: 'Failed to generate share link' }, 500);
+    }
+
+    const tokenStr = String(inserted.token);
+    return c.json({
+      token: tokenStr,
+      url: `${baseUrl}/s/${tokenStr}`,
+      mode: inserted.mode ?? 'lightweight',
+    });
   } catch (error) {
     console.log(`Error generating session share: ${error}`);
     return c.json({ error: 'Failed to generate share link' }, 500);
@@ -783,20 +919,30 @@ app.delete("/make-server-837ff822/sessions/:sessionId/share", async (c) => {
     if (!userId) {
       return c.json({ error: 'Unauthorized' }, 401);
     }
-    
+
     const sessionId = c.req.param('sessionId');
-    const session = await kv.get(`session:${userId}:${sessionId}`);
-    
-    if (!session) {
-      return c.json({ error: 'Session not found' }, 404);
+
+    const resolved = await ensurePostgresSessionFromKvForUser(userId, sessionId);
+    if (!resolved.ok) {
+      if ('notFound' in resolved && resolved.notFound) {
+        return c.json({ error: 'Session not found' }, 404);
+      }
+      console.log(`Error verifying session ownership for share revoke: ${resolved.error}`);
+      return c.json({ error: 'Failed to revoke share link' }, 500);
     }
-    
-    const existingShare = await kv.get(`share:session:${sessionId}`);
-    if (existingShare?.token) {
-      await kv.del(`share:token:${existingShare.token}`);
+
+    const { error } = await supabaseAdmin
+      .from('share_tokens')
+      .update({ revoked_at: new Date().toISOString() })
+      .eq('session_id', sessionId)
+      .is('clip_id', null)
+      .is('revoked_at', null);
+
+    if (error) {
+      console.log(`Error revoking session share: ${error.message}`);
+      return c.json({ error: 'Failed to revoke share link' }, 500);
     }
-    await kv.del(`share:session:${sessionId}`);
-    
+
     return c.json({ success: true });
   } catch (error) {
     console.log(`Error revoking session share: ${error}`);
@@ -979,22 +1125,37 @@ app.get("/make-server-837ff822/share/:token", async (c) => {
       });
     }
 
-    // KV session shares (non-UUID tokens from generateShareToken); clip shares use Postgres only.
-    const kvShare = await kv.get(`share:token:${token}`) as Record<string, unknown> | null;
-    if (kvShare?.type === 'session') {
-      const shareUserId = kvShare.userId ?? kvShare.user_id;
-      const shareSessionId = kvShare.sessionId ?? kvShare.session_id;
-      if (typeof shareUserId !== 'string' || typeof shareSessionId !== 'string') {
-        return c.json({ error: 'Share link not found or expired' }, 404);
+    const { data: sessionToken, error: sessionTokErr } = await supabaseAdmin
+      .from('share_tokens')
+      .select('session_id, mode')
+      .eq('token', token)
+      .is('clip_id', null)
+      .is('revoked_at', null)
+      .maybeSingle();
+
+    if (sessionTokErr) {
+      const msg = sessionTokErr.message ?? '';
+      const invalidUuid =
+        sessionTokErr.code === '22P02' || /invalid.*uuid/i.test(msg);
+      if (!invalidUuid) {
+        console.log(`Error resolving session share token (postgres): ${msg}`);
+        return c.json({ error: 'Failed to resolve share link' }, 500);
       }
-      const session = await kv.get(`session:${shareUserId}:${shareSessionId}`);
-      if (!session) {
+    }
+
+    if (sessionToken?.session_id) {
+      const { data: rpcData, error: rpcErr } = await supabaseAdmin.rpc(
+        'get_shared_session',
+        { p_token: token },
+      );
+      if (rpcErr || rpcData == null) {
         return c.json({ error: 'Session no longer exists' }, 404);
       }
+      const payload = rpcData as Record<string, unknown>;
       return c.json({
         type: 'session',
-        session,
-        mode: (kvShare.mode as string) ?? 'lightweight',
+        ...payload,
+        mode: sessionToken.mode ?? 'lightweight',
       });
     }
 
