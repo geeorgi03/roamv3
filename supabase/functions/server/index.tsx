@@ -218,14 +218,12 @@ app.delete("/make-server-837ff822/sessions/:id", async (c) => {
     const sessionId = c.req.param('id');
     await kv.del(`session:${userId}:${sessionId}`);
     
-    // Also delete related data
-    const clips = await kv.getByPrefix(`clip:${userId}:${sessionId}:`);
+    // Also delete related data (clips live in Postgres with ON DELETE CASCADE)
     const notes = await kv.getByPrefix(`note:${userId}:${sessionId}:`);
     const loops = await kv.getByPrefix(`loop:${userId}:${sessionId}:`);
     const marks = await kv.getByPrefix(`mark:${userId}:${sessionId}:`);
     
     const deleteKeys = [
-      ...clips.map(c => `clip:${userId}:${sessionId}:${c.id}`),
       ...notes.map(n => `note:${userId}:${sessionId}:${n.id}`),
       ...loops.map(l => `loop:${userId}:${sessionId}:${l.id}`),
       ...marks.map(m => `mark:${userId}:${sessionId}:${m.id}`),
@@ -244,10 +242,34 @@ app.delete("/make-server-837ff822/sessions/:id", async (c) => {
 
 // ==================== CLIP ROUTES ====================
 
-// Helper to get normalized section value (prefer section_id, fallback to section)
-const getNormalizedSection = (clip: any): string | undefined => {
-  return clip.section_id || clip.section;
+// Map Postgres clip rows to API-friendly fields (camelCase used by clients)
+const enrichClipRow = (row: Record<string, unknown> | null) => {
+  if (!row || typeof row !== "object") return row;
+  return {
+    ...row,
+    sessionId: row.session_id ?? row.sessionId,
+    userId: row.user_id ?? row.userId,
+    createdAt: row.created_at ?? row.createdAt,
+    type_tag: row.type_tag,
+    feel_tags: row.feel_tags,
+    section_id: row.section_id,
+    timecode_ms: row.timecode_ms,
+  };
 };
+
+const CLIP_OPTIONAL_DB_KEYS = [
+  "mux_upload_id",
+  "mux_asset_id",
+  "mux_playback_id",
+  "mux_passthrough",
+  "upload_status",
+  "move_name",
+  "style",
+  "energy",
+  "difficulty",
+  "bpm",
+  "notes",
+] as const;
 
 app.get("/make-server-837ff822/clips", async (c) => {
   try {
@@ -261,34 +283,29 @@ app.get("/make-server-837ff822/clips", async (c) => {
     const section_id = c.req.query('section_id');
     const unassigned = c.req.query('unassigned') === 'true';
     
-    const allClips = await kv.getByPrefix(`clip:${userId}:`);
-    
-    let filteredClips = allClips.filter(clip => {
-      if (type_tag && clip.type_tag !== type_tag) return false;
-      if (feel_tags.length > 0 && (!Array.isArray(clip.feel_tags) || !feel_tags.every(tag => clip.feel_tags.includes(tag)))) return false;
-      
-      const normalizedSection = getNormalizedSection(clip);
-      if (section_id && normalizedSection !== section_id) return false;
-      if (unassigned && normalizedSection) return false;
-      return true;
+    let q = supabaseAdmin
+      .from('clips')
+      .select('*, sessions(name)')
+      .eq('user_id', userId);
+    if (type_tag) q = q.eq('type_tag', type_tag);
+    if (feel_tags.length > 0) q = q.contains('feel_tags', feel_tags);
+    if (section_id) q = q.eq('section_id', section_id);
+    if (unassigned) q = q.is('session_id', null);
+
+    const { data: rows, error } = await q;
+    if (error) {
+      console.log(`Error fetching cross-session clips: ${error.message}`);
+      return c.json({ error: 'Failed to fetch clips' }, 500);
+    }
+
+    const clips = (rows ?? []).map((row: Record<string, unknown>) => {
+      const sessions = row.sessions as { name?: string } | null | undefined;
+      const { sessions: _s, ...rest } = row;
+      return enrichClipRow({
+        ...rest,
+        session_name: sessions?.name ?? '',
+      });
     });
-    
-    const uniqueSessionIds = [...new Set(filteredClips.map(clip => clip.sessionId))];
-    const sessionPromises = uniqueSessionIds.map(sessionId => kv.get(`session:${userId}:${sessionId}`));
-    const sessions = await Promise.all(sessionPromises);
-    
-    const sessionNameMap: Record<string, string> = {};
-    sessions.forEach((session, index) => {
-      const sessionId = uniqueSessionIds[index];
-      sessionNameMap[sessionId] = session?.name ?? session?.title ?? '';
-    });
-    
-    const clips = filteredClips.map(clip => ({
-      ...clip,
-      session_id: clip.sessionId,
-      session_name: sessionNameMap[clip.sessionId] ?? '',
-      section_id: getNormalizedSection(clip)
-    }));
     
     return c.json({ clips });
   } catch (error) {
@@ -305,8 +322,18 @@ app.get("/make-server-837ff822/sessions/:sessionId/clips", async (c) => {
     }
     
     const sessionId = c.req.param('sessionId');
-    const clips = await kv.getByPrefix(`clip:${userId}:${sessionId}:`);
-    
+    const { data, error } = await supabaseAdmin
+      .from('clips')
+      .select('*')
+      .eq('session_id', sessionId)
+      .eq('user_id', userId);
+
+    if (error) {
+      console.log(`Error fetching clips: ${error.message}`);
+      return c.json({ error: 'Failed to fetch clips' }, 500);
+    }
+
+    const clips = (data ?? []).map((row) => enrichClipRow(row as Record<string, unknown>));
     return c.json({ clips });
   } catch (error) {
     console.log(`Error fetching clips: ${error}`);
@@ -322,21 +349,46 @@ app.post("/make-server-837ff822/sessions/:sessionId/clips", async (c) => {
     }
     
     const sessionId = c.req.param('sessionId');
-    const clipData = await c.req.json();
+    const clipData = await c.req.json() as Record<string, unknown>;
     const feel_tags = Array.isArray(clipData.feel_tags) ? clipData.feel_tags : [];
-    const clipId = clipData.id || crypto.randomUUID();
-    
-    const clip = {
-      ...clipData,
-      feel_tags,
+    const clipId = (clipData.id as string) || crypto.randomUUID();
+    const local_id =
+      (clipData.local_id as string) ||
+      (clipData.id as string) ||
+      crypto.randomUUID();
+
+    const insertPayload: Record<string, unknown> = {
       id: clipId,
-      sessionId,
-      userId,
-      createdAt: clipData.createdAt || new Date().toISOString(),
+      session_id: sessionId,
+      user_id: userId,
+      local_id,
+      label: (clipData.label as string) || 'Clip',
+      type_tag: clipData.type_tag ?? null,
+      feel_tags,
+      section_id: clipData.section_id ?? null,
+      timecode_ms: clipData.timecode_ms ?? null,
+      recorded_at:
+        (clipData.recorded_at as string) ||
+        (clipData.createdAt as string) ||
+        new Date().toISOString(),
     };
-    
-    await kv.set(`clip:${userId}:${sessionId}:${clipId}`, clip);
-    return c.json({ clip });
+
+    for (const key of CLIP_OPTIONAL_DB_KEYS) {
+      if (clipData[key] !== undefined) insertPayload[key] = clipData[key];
+    }
+
+    const { data, error } = await supabaseAdmin
+      .from('clips')
+      .insert(insertPayload)
+      .select()
+      .single();
+
+    if (error) {
+      console.log(`Error creating clip: ${error.message}`);
+      return c.json({ error: 'Failed to create clip' }, 500);
+    }
+
+    return c.json({ clip: enrichClipRow(data as Record<string, unknown>) });
   } catch (error) {
     console.log(`Error creating clip: ${error}`);
     return c.json({ error: 'Failed to create clip' }, 500);
@@ -350,10 +402,19 @@ app.delete("/make-server-837ff822/sessions/:sessionId/clips/:clipId", async (c) 
       return c.json({ error: 'Unauthorized' }, 401);
     }
     
-    const sessionId = c.req.param('sessionId');
     const clipId = c.req.param('clipId');
     
-    await kv.del(`clip:${userId}:${sessionId}:${clipId}`);
+    const { error } = await supabaseAdmin
+      .from('clips')
+      .delete()
+      .eq('id', clipId)
+      .eq('user_id', userId);
+
+    if (error) {
+      console.log(`Error deleting clip: ${error.message}`);
+      return c.json({ error: 'Failed to delete clip' }, 500);
+    }
+
     return c.json({ success: true });
   } catch (error) {
     console.log(`Error deleting clip: ${error}`);
@@ -368,19 +429,22 @@ app.patch("/make-server-837ff822/sessions/:sessionId/clips/:clipId", async (c) =
       return c.json({ error: 'Unauthorized' }, 401);
     }
     
-    const sessionId = c.req.param('sessionId');
     const clipId = c.req.param('clipId');
     const updates = await c.req.json();
     
-    const existing = await kv.get(`clip:${userId}:${sessionId}:${clipId}`);
-    if (!existing) {
+    const { data, error } = await supabaseAdmin
+      .from('clips')
+      .update(updates)
+      .eq('id', clipId)
+      .eq('user_id', userId)
+      .select()
+      .single();
+
+    if (error || !data) {
       return c.json({ error: 'Clip not found' }, 404);
     }
     
-    const clip = { ...existing, ...updates };
-    await kv.set(`clip:${userId}:${sessionId}:${clipId}`, clip);
-    
-    return c.json({ clip });
+    return c.json({ clip: enrichClipRow(data as Record<string, unknown>) });
   } catch (error) {
     console.log(`Error updating clip: ${error}`);
     return c.json({ error: 'Failed to update clip' }, 500);
@@ -750,49 +814,71 @@ app.post("/make-server-837ff822/sessions/:sessionId/clips/:clipId/share", async 
     
     const sessionId = c.req.param('sessionId');
     const clipId = c.req.param('clipId');
-    
-    const session = await kv.get(`session:${userId}:${sessionId}`);
-    if (!session) {
-      return c.json({ error: 'Session not found' }, 404);
+
+    const { data: ownedClip, error: ownErr } = await supabaseAdmin
+      .from('clips')
+      .select('id')
+      .eq('id', clipId)
+      .eq('session_id', sessionId)
+      .eq('user_id', userId)
+      .maybeSingle();
+
+    if (ownErr) {
+      console.log(`Error verifying clip ownership for share: ${ownErr.message}`);
+      return c.json({ error: 'Failed to generate share link' }, 500);
     }
-    
-    const clip = await kv.get(`clip:${userId}:${sessionId}:${clipId}`);
-    if (!clip) {
+    if (!ownedClip) {
       return c.json({ error: 'Clip not found' }, 404);
     }
     
-    let body: any = {};
+    let body: Record<string, unknown> = {};
     try {
-      body = await c.req.json();
+      body = (await c.req.json()) as Record<string, unknown>;
     } catch {
       // Body may be absent
     }
-    const mode = body?.mode ?? 'lightweight';
+    const mode = (body?.mode as string) ?? 'lightweight';
     
-    // Check for existing share token
-    const existingShare = await kv.get(`share:clip:${clipId}`);
-    if (existingShare?.token) {
-      const baseUrl = Deno.env.get('PUBLIC_SITE_URL') || 'https://app.example.com';
-      return c.json({ token: existingShare.token, url: `${baseUrl}/share/${existingShare.token}`, mode: existingShare.mode ?? 'lightweight' });
+    const { data: existing, error: existingErr } = await supabaseAdmin
+      .from('share_tokens')
+      .select('token, mode')
+      .eq('clip_id', clipId)
+      .is('revoked_at', null)
+      .maybeSingle();
+
+    if (existingErr) {
+      console.log(`Error looking up clip share: ${existingErr.message}`);
+      return c.json({ error: 'Failed to generate share link' }, 500);
     }
-    
-    // Generate new share token
-    const token = generateShareToken();
-    const shareData = {
-      token,
-      clipId,
-      sessionId,
-      userId,
-      type: 'clip',
-      mode,
-      createdAt: new Date().toISOString(),
-    };
-    
-    await kv.set(`share:clip:${clipId}`, shareData);
-    await kv.set(`share:token:${token}`, shareData);
-    
+
     const baseUrl = Deno.env.get('PUBLIC_SITE_URL') || 'https://app.example.com';
-    return c.json({ token, url: `${baseUrl}/share/${token}` });
+
+    if (existing?.token) {
+      const tokenStr = String(existing.token);
+      return c.json({
+        token: tokenStr,
+        url: `${baseUrl}/share/${tokenStr}`,
+        mode: existing.mode ?? 'lightweight',
+      });
+    }
+
+    const { data: inserted, error: insertErr } = await supabaseAdmin
+      .from('share_tokens')
+      .insert({ session_id: sessionId, clip_id: clipId, mode })
+      .select('token, mode')
+      .single();
+
+    if (insertErr || !inserted?.token) {
+      console.log(`Error inserting clip share: ${insertErr?.message}`);
+      return c.json({ error: 'Failed to generate share link' }, 500);
+    }
+
+    const tokenStr = String(inserted.token);
+    return c.json({
+      token: tokenStr,
+      url: `${baseUrl}/share/${tokenStr}`,
+      mode: inserted.mode ?? 'lightweight',
+    });
   } catch (error) {
     console.log(`Error generating clip share: ${error}`);
     return c.json({ error: 'Failed to generate share link' }, 500);
@@ -809,22 +895,33 @@ app.delete("/make-server-837ff822/sessions/:sessionId/clips/:clipId/share", asyn
     
     const sessionId = c.req.param('sessionId');
     const clipId = c.req.param('clipId');
-    
-    const session = await kv.get(`session:${userId}:${sessionId}`);
-    if (!session) {
-      return c.json({ error: 'Session not found' }, 404);
+
+    const { data: ownedClip, error: ownErr } = await supabaseAdmin
+      .from('clips')
+      .select('id')
+      .eq('id', clipId)
+      .eq('session_id', sessionId)
+      .eq('user_id', userId)
+      .maybeSingle();
+
+    if (ownErr) {
+      console.log(`Error verifying clip ownership for share revoke: ${ownErr.message}`);
+      return c.json({ error: 'Failed to revoke share link' }, 500);
     }
-    
-    const clip = await kv.get(`clip:${userId}:${sessionId}:${clipId}`);
-    if (!clip) {
+    if (!ownedClip) {
       return c.json({ error: 'Clip not found' }, 404);
     }
     
-    const existingShare = await kv.get(`share:clip:${clipId}`);
-    if (existingShare?.token) {
-      await kv.del(`share:token:${existingShare.token}`);
+    const { error } = await supabaseAdmin
+      .from('share_tokens')
+      .update({ revoked_at: new Date().toISOString() })
+      .eq('clip_id', clipId)
+      .is('revoked_at', null);
+
+    if (error) {
+      console.log(`Error revoking clip share: ${error.message}`);
+      return c.json({ error: 'Failed to revoke share link' }, 500);
     }
-    await kv.del(`share:clip:${clipId}`);
     
     return c.json({ success: true });
   } catch (error) {
@@ -837,40 +934,71 @@ app.delete("/make-server-837ff822/sessions/:sessionId/clips/:clipId/share", asyn
 app.get("/make-server-837ff822/share/:token", async (c) => {
   try {
     const token = c.req.param('token');
-    const shareData = await kv.get(`share:token:${token}`);
-    
-    if (!shareData) {
-      return c.json({ error: 'Share link not found or expired' }, 404);
+
+    let st: Record<string, unknown> | null = null;
+    const { data: pgRow, error: pgErr } = await supabaseAdmin
+      .from('share_tokens')
+      .select('*, clips(*)')
+      .eq('token', token)
+      .is('revoked_at', null)
+      .maybeSingle();
+
+    if (pgErr) {
+      const msg = pgErr.message ?? '';
+      const invalidUuid =
+        pgErr.code === '22P02' || /invalid.*uuid/i.test(msg);
+      if (!invalidUuid) {
+        console.log(`Error resolving share token (postgres): ${msg}`);
+        return c.json({ error: 'Failed to resolve share link' }, 500);
+      }
+    } else {
+      st = pgRow as Record<string, unknown> | null;
     }
-    
-    if (shareData.type === 'session') {
-      const session = await kv.get(`session:${shareData.userId}:${shareData.sessionId}`);
+
+    if (st?.clip_id) {
+      const rawClip = st.clips as Record<string, unknown> | Record<string, unknown>[] | null;
+      const clipRow = Array.isArray(rawClip) ? rawClip[0] : rawClip;
+      if (!clipRow || typeof clipRow !== 'object') {
+        return c.json({ error: 'Clip no longer exists' }, 404);
+      }
+      const normalizedClip = {
+        ...clipRow,
+        videoUrl:
+          clipRow.videoUrl ??
+          clipRow.video_storage_path,
+        audioUrl:
+          clipRow.audioUrl ??
+          clipRow.audio_storage_path,
+        prompt: clipRow.prompt,
+      };
+      return c.json({
+        type: 'clip',
+        clip: normalizedClip,
+        sessionId: st.session_id,
+        mode: st.mode ?? 'lightweight',
+      });
+    }
+
+    // KV session shares (non-UUID tokens from generateShareToken); clip shares use Postgres only.
+    const kvShare = await kv.get(`share:token:${token}`) as Record<string, unknown> | null;
+    if (kvShare?.type === 'session') {
+      const shareUserId = kvShare.userId ?? kvShare.user_id;
+      const shareSessionId = kvShare.sessionId ?? kvShare.session_id;
+      if (typeof shareUserId !== 'string' || typeof shareSessionId !== 'string') {
+        return c.json({ error: 'Share link not found or expired' }, 404);
+      }
+      const session = await kv.get(`session:${shareUserId}:${shareSessionId}`);
       if (!session) {
         return c.json({ error: 'Session no longer exists' }, 404);
       }
-      return c.json({ type: 'session', session, mode: shareData.mode ?? 'lightweight' });
-    } else if (shareData.type === 'clip') {
-      const clip = await kv.get(`clip:${shareData.userId}:${shareData.sessionId}:${shareData.clipId}`);
-      if (!clip) {
-        return c.json({ error: 'Clip no longer exists' }, 404);
-      }
-      const normalizedClip =
-        clip && typeof clip === "object"
-          ? {
-              ...(clip as Record<string, unknown>),
-              videoUrl:
-                (clip as Record<string, unknown>).videoUrl ??
-                (clip as Record<string, unknown>).video_storage_path,
-              audioUrl:
-                (clip as Record<string, unknown>).audioUrl ??
-                (clip as Record<string, unknown>).audio_storage_path,
-              prompt: (clip as Record<string, unknown>).prompt,
-            }
-          : clip;
-      return c.json({ type: 'clip', clip: normalizedClip, sessionId: shareData.sessionId, mode: shareData.mode ?? 'lightweight' });
+      return c.json({
+        type: 'session',
+        session,
+        mode: (kvShare.mode as string) ?? 'lightweight',
+      });
     }
-    
-    return c.json({ error: 'Invalid share type' }, 400);
+
+    return c.json({ error: 'Share link not found or expired' }, 404);
   } catch (error) {
     console.log(`Error resolving share token: ${error}`);
     return c.json({ error: 'Failed to resolve share link' }, 500);
@@ -881,26 +1009,42 @@ app.get("/make-server-837ff822/share/:token", async (c) => {
 app.post("/make-server-837ff822/share/:token/response", async (c) => {
   try {
     const token = c.req.param('token');
-    const shareData = await kv.get(`share:token:${token}`);
-    if (!shareData) return c.json({ error: 'Share link not found' }, 404);
 
-    const { clipId } = shareData as any;
+    const { data, error } = await supabaseAdmin
+      .from('share_tokens')
+      .select('id, clip_id')
+      .eq('token', token)
+      .is('revoked_at', null)
+      .maybeSingle();
+
+    if (error) {
+      const msg = error.message ?? '';
+      if (error.code === '22P02' || /invalid.*uuid/i.test(msg)) {
+        return c.json({ error: 'Share link not found' }, 404);
+      }
+      console.log(`Error verifying share token: ${msg}`);
+      return c.json({ error: 'Failed to save response' }, 500);
+    }
+    if (!data?.clip_id) return c.json({ error: 'Share link not found' }, 404);
+
     const body = await c.req.json();
     
     // Support both 'text' and 'response' for backward compatibility
     const responseText = body.text || body.response;
     if (!responseText?.trim()) return c.json({ error: 'Response text is required' }, 400);
 
-    const responseId = crypto.randomUUID();
-    const response = {
-      id: responseId,
-      clipId,
-      text: responseText.trim(),
-      createdAt: new Date().toISOString(),
-    };
+    const { error: insErr } = await supabaseAdmin.from('clip_responses').insert({
+      clip_id: data.clip_id,
+      token_id: data.id,
+      text: String(responseText).trim(),
+    });
 
-    await kv.set(`share:response:${clipId}:${responseId}`, response);
-    console.log(`Response saved for clip ${clipId}`);
+    if (insErr) {
+      console.log(`Error inserting clip response: ${insErr.message}`);
+      return c.json({ error: 'Failed to save response' }, 500);
+    }
+
+    console.log(`Response saved for clip ${data.clip_id}`);
     return c.json({ success: true });
   } catch (error) {
     console.log(`Error saving response: ${error}`);
@@ -915,8 +1059,18 @@ app.get("/make-server-837ff822/sessions/:sessionId/clips/:clipId/responses", asy
     if (!userId) return c.json({ error: 'Unauthorized' }, 401);
 
     const clipId = c.req.param('clipId');
-    const responses = await kv.getByPrefix(`share:response:${clipId}:`);
-    return c.json({ responses });
+    const { data, error } = await supabaseAdmin
+      .from('clip_responses')
+      .select('id, text, created_at')
+      .eq('clip_id', clipId)
+      .order('created_at', { ascending: true });
+
+    if (error) {
+      console.log(`Error fetching responses: ${error.message}`);
+      return c.json({ error: 'Failed to fetch responses' }, 500);
+    }
+
+    return c.json({ responses: data ?? [] });
   } catch (error) {
     console.log(`Error fetching responses: ${error}`);
     return c.json({ error: 'Failed to fetch responses' }, 500);
@@ -1068,20 +1222,68 @@ app.patch("/make-server-837ff822/inbox/:clipId/assign", async (c) => {
     if (!clip) return c.json({ error: 'Clip not found in inbox' }, 404);
 
     const normalized = normalizeInboxClip(clip);
-    const assignedClip = normalizeInboxClip({
-      ...normalized,
+    const sectionId =
+      section ?? firstString(normalized.section, normalized.section_id) ?? null;
+    const local_id =
+      firstString(normalized.local_id, normalized.id) ?? clipId;
+    const feel_tags = Array.isArray(normalized.feel_tags)
+      ? normalized.feel_tags
+      : [];
+    const recorded_at =
+      firstString(
+        normalized.recorded_at,
+        normalized.recordedAt,
+        normalized.created_at,
+        normalized.createdAt,
+      ) ?? new Date().toISOString();
+
+    const { data: existingClip, error: existingErr } = await supabaseAdmin
+      .from('clips')
+      .select('id, user_id')
+      .eq('id', clipId)
+      .maybeSingle();
+
+    if (existingErr) {
+      console.log(`Error checking existing clip for assign: ${existingErr.message}`);
+      return c.json({ error: 'Failed to assign clip' }, 500);
+    }
+    if (existingClip && existingClip.user_id !== userId) {
+      return c.json({ error: 'Clip id already in use' }, 409);
+    }
+
+    const upsertPayload: Record<string, unknown> = {
       id: clipId,
-      userId,
       user_id: userId,
-      sessionId,
       session_id: sessionId,
-      section: section ?? normalized.section,
-    });
+      local_id,
+      label: firstString(normalized.label) ?? 'Clip',
+      section_id: sectionId,
+      type_tag: normalized.type_tag ?? null,
+      feel_tags,
+      timecode_ms: firstNumber(normalized.timecode_ms) ?? null,
+      recorded_at,
+      upload_status: firstString(normalized.upload_status) ?? 'local',
+    };
+
+    for (const key of CLIP_OPTIONAL_DB_KEYS) {
+      if (normalized[key] !== undefined) upsertPayload[key] = normalized[key];
+    }
+
+    const { data: row, error: upsertErr } = await supabaseAdmin
+      .from('clips')
+      .upsert(upsertPayload, { onConflict: 'id' })
+      .select()
+      .single();
+
+    if (upsertErr || !row) {
+      console.log(`Error upserting assigned clip: ${upsertErr?.message}`);
+      return c.json({ error: 'Failed to assign clip' }, 500);
+    }
+
     await kv.del(`inbox:${userId}:${clipId}`);
-    await kv.set(`clip:${userId}:${sessionId}:${clipId}`, assignedClip);
 
     console.log(`Inbox clip ${clipId} assigned to session ${sessionId}`);
-    return c.json({ clip: assignedClip });
+    return c.json({ clip: enrichClipRow(row as Record<string, unknown>) });
   } catch (error) {
     console.log(`Error assigning inbox clip: ${error}`);
     return c.json({ error: 'Failed to assign clip' }, 500);

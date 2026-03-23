@@ -10,16 +10,20 @@ interface QuickTagSheetProps {
   saveError?: string | null;
   onRetry?: () => void;
   onSaveToInbox?: () => void;
+  recentTypes?: string[];
 }
 
-export default function QuickTagSheet({ isOpen, onClose, section = "Chorus", timecode = "0:42", onSubmit, saveError, onRetry, onSaveToInbox }: QuickTagSheetProps) {
+export default function QuickTagSheet({ isOpen, onClose, section = "Chorus", timecode = "0:42", onSubmit, saveError, onRetry, onSaveToInbox, recentTypes = [] }: QuickTagSheetProps) {
   const [selectedType, setSelectedType] = useState<string | null>(null);
   const [selectedFeels, setSelectedFeels] = useState<string[]>([]);
   const [note, setNote] = useState("");
 
   if (!isOpen) return null;
 
-  const typeOptions = ["Idea", "Phrase", "Transition", "Marking", "Full-out"];
+  const baseOrder = ["Idea", "Phrase", "Transition", "Marking", "Full-out"];
+  const typeOptions = recentTypes.length > 0 
+    ? [recentTypes[0], ...baseOrder.filter(t => t !== recentTypes[0])]
+    : baseOrder;
   const feelOptions = ["Heavy", "Light", "Vulnerable", "Sharp", "Fluid", "Explosive"];
 
   const handleSave = () => {

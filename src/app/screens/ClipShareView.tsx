@@ -279,7 +279,7 @@ export default function ClipShareView() {
                 lineHeight: "1.6",
               }}
             >
-              Your response has been sent.
+              Your response has been shared with the choreographer.
             </p>
           </div>
         )}

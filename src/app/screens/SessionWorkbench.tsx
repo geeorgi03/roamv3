@@ -705,6 +705,27 @@ export default function SessionWorkbench() {
 
   const shareClips = useMemo(() => [...optimisticClips, ...clips], [clips, optimisticClips]);
 
+  const recentTypes = useMemo(() => {
+    const combined = [...optimisticClips, ...clips];
+    const sorted = [...combined].sort((a, b) => {
+      const aRaw = (a as Clip & { created_at?: string }).created_at ?? a.createdAt;
+      const bRaw = (b as Clip & { created_at?: string }).created_at ?? b.createdAt;
+      const aMs = aRaw ? new Date(aRaw).getTime() : 0;
+      const bMs = bRaw ? new Date(bRaw).getTime() : 0;
+      return bMs - aMs;
+    });
+    const seen = new Set<string>();
+    const out: string[] = [];
+    for (const clip of sorted) {
+      const tag = clip.type_tag;
+      if (tag == null || tag === "") continue;
+      if (seen.has(tag)) continue;
+      seen.add(tag);
+      out.push(tag);
+    }
+    return out;
+  }, [clips, optimisticClips]);
+
   const filteredClips = useMemo(() => {
     // Fall back to in-session clips when cross-session fetch failed
     const mergedClips = [...optimisticClips, ...clips];
@@ -2546,7 +2567,7 @@ export default function SessionWorkbench() {
               <div className="mt-4 space-y-3">
                 {shareClips.length === 0 ? (
                   <div style={{ fontFamily: "var(--font-body)", fontSize: "14px", color: "var(--text-disabled)", textAlign: "center", padding: "20px" }}>
-                    No clips yet — <button onClick={() => navigate(`/capture?sessionId=${sessionId}`)} style={{ color: "var(--accent-primary)", textDecoration: "none", fontFamily: "var(--font-body)", fontSize: "14px" }}>record a clip</button> to share it
+                    No clips yet — <button onClick={() => setCaptureOpen(true)} style={{ color: "var(--accent-primary)", textDecoration: "none", fontFamily: "var(--font-body)", fontSize: "14px" }}>record a clip</button> to share it
                   </div>
                 ) : (
                   shareClips.map((clip) => {
@@ -2717,6 +2738,7 @@ export default function SessionWorkbench() {
         saveError={quickTagSaveError}
         onRetry={handleQuickTagRetry}
         onSaveToInbox={handleSaveToInbox}
+        recentTypes={recentTypes}
       />
 
       <MusicAttachmentSheet

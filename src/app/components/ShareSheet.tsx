@@ -60,7 +60,10 @@ export default function ShareSheet({ isOpen, onClose, clipId, sessionId, clipLab
       const endpoint = clipId
         ? `/sessions/${sessionId}/clips/${clipId}/share`
         : `/sessions/${sessionId}/share`;
-      const res = await apiRequest(endpoint, { method: "POST" });
+      const res = await apiRequest(endpoint, { 
+        method: "POST",
+        body: clipId ? JSON.stringify({ mode: 'lightweight' }) : undefined 
+      });
       if (!res.ok) {
         const body = await res.json().catch(() => ({}));
         throw new Error(body.error || `Failed to generate link (${res.status})`);
