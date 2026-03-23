@@ -254,7 +254,36 @@ export default function SessionWorkbench() {
         try {
           const { syncPendingClips } = await import('../lib/syncPendingClips');
           const saveClipFn = async (clipData: any) => {
-            return addClip({
+            const targetSessionId = clipData.session_id;
+            const shouldRefresh = !targetSessionId || targetSessionId === sessionId;
+
+            if (typeof targetSessionId === 'string' && targetSessionId.trim()) {
+              const res = await apiRequest(`/sessions/${targetSessionId}/clips`, {
+                method: 'POST',
+                body: JSON.stringify({
+                  videoUrl: clipData.videoUrl,
+                  startTime: (clipData.timecode_ms ?? 0) / 1000,
+                  section: clipData.section_id ?? undefined,
+                  type: 'idea',
+                  type_tag: clipData.type_tag,
+                  feel_tags: clipData.feel_tags,
+                  notes: clipData.notes,
+                  section_id: clipData.section_id,
+                  timecode_ms: clipData.timecode_ms,
+                  tags: [],
+                }),
+              });
+
+              if (!res.ok) {
+                throw new Error('Failed to save clip');
+              }
+
+              const result = await res.json();
+              if (shouldRefresh) refresh();
+              return result.clip;
+            }
+
+            const result = await addClip({
               videoUrl: clipData.videoUrl,
               startTime: (clipData.timecode_ms ?? 0) / 1000,
               section: clipData.section_id ?? undefined,
@@ -266,10 +295,12 @@ export default function SessionWorkbench() {
               timecode_ms: clipData.timecode_ms,
               tags: [],
             });
+
+            if (shouldRefresh) refresh();
+            return result;
           };
           await syncPendingClips(saveClipFn, uploadFile, (tempId: string) => {
             setOptimisticClips(prev => prev.filter(c => c.id !== tempId));
-            refresh();
           });
         } catch (error) {
           console.error('Failed to sync pending clips:', error);

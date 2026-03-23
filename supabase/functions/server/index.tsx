@@ -103,7 +103,7 @@ async function upsertSessionRowFromKvSession(
   return { error: null };
 }
 
-/** If Postgres has no row yet, backfill from KV so share routes can verify ownership. */
+/** Pure Postgres ownership check (no KV backfill). */
 async function ensurePostgresSessionFromKvForUser(
   userId: string,
   sessionId: string,
@@ -119,26 +119,7 @@ async function ensurePostgresSessionFromKvForUser(
   }
   if (existing) return { ok: true };
 
-  const kvSession = await kv.get(`session:${userId}:${sessionId}`);
-  if (!kvSession || typeof kvSession !== 'object') {
-    return { ok: false, notFound: true };
-  }
-  const { error: syncErr } = await upsertSessionRowFromKvSession(
-    userId,
-    sessionId,
-    kvSession as Record<string, unknown>,
-  );
-  if (syncErr) return { ok: false, error: syncErr };
-
-  const { data: after, error: againErr } = await supabaseAdmin
-    .from('sessions')
-    .select('id')
-    .eq('id', sessionId)
-    .eq('user_id', userId)
-    .maybeSingle();
-  if (againErr) return { ok: false, error: againErr.message };
-  if (!after) return { ok: false, notFound: true };
-  return { ok: true };
+  return { ok: false, notFound: true };
 }
 
 // Enable logger
@@ -1262,21 +1243,24 @@ app.get("/make-server-837ff822/sessions/:sessionId/clips/:clipId/responses", asy
     const sessionId = c.req.param('sessionId');
     const clipId = c.req.param('clipId');
 
-    // Verify ownership before querying responses
-    const { data: ownedClip, error: ownErr } = await supabaseAdmin
+    // Step A — Existence check (clip by id only)
+    const { data: clip, error: ownErr } = await supabaseAdmin
       .from('clips')
-      .select('id')
+      .select('id, user_id, session_id')
       .eq('id', clipId)
-      .eq('session_id', sessionId)
-      .eq('user_id', userId)
       .maybeSingle();
 
     if (ownErr) {
       console.log(`Error verifying clip ownership for responses: ${ownErr.message}`);
       return c.json({ error: 'Failed to fetch responses' }, 500);
     }
-    if (!ownedClip) {
+    if (!clip) {
       return c.json({ error: 'Clip not found' }, 404);
+    }
+
+    // Step B — Ownership check
+    if (clip.user_id !== userId || clip.session_id !== sessionId) {
+      return c.json({ error: 'Forbidden' }, 403);
     }
 
     const { data, error } = await supabaseAdmin
