@@ -286,13 +286,32 @@ export default function SessionWorkbench() {
           const { syncPendingClips } = await import('../lib/syncPendingClips');
           const saveClipFn = async (clipData: any) => {
             const targetSessionId = clipData.session_id;
+            const destination = clipData.destination;
             const shouldRefresh = !targetSessionId || targetSessionId === sessionId;
 
+            // Route inbox items to inbox endpoint regardless of session_id
+            if (destination === 'inbox') {
+              const result = await saveClip({
+                mediaType: clipData.mediaType,
+                videoUrl: clipData.videoUrl,
+                audioUrl: clipData.audioUrl,
+                createdAt: clipData.createdAt,
+                type_tag: clipData.type_tag,
+                feel_tags: clipData.feel_tags,
+                notes: clipData.notes,
+                section_id: clipData.section_id,
+                timecode_ms: clipData.timecode_ms,
+              });
+              return result;
+            }
+
+            // Route session items to session endpoints
             if (typeof targetSessionId === 'string' && targetSessionId.trim()) {
               const res = await apiRequest(`/sessions/${targetSessionId}/clips`, {
                 method: 'POST',
                 body: JSON.stringify({
                   videoUrl: clipData.videoUrl,
+                  video_storage_path: clipData.videoUrl,
                   startTime: (clipData.timecode_ms ?? 0) / 1000,
                   section: clipData.section_id ?? undefined,
                   type: 'idea',
@@ -657,14 +676,47 @@ export default function SessionWorkbench() {
     const linkedSection = failedSubmitPayload?.linkedSection || captureLinkedSection;
     
     try {
-      const { url } = await uploadFile(blob, 'video');
-      
-      await saveClip({
-        mediaType: 'video',
-        videoUrl: url,
-        duration: 0, // We don't have duration info for quick captures
-        createdAt: new Date().toISOString(),
-      });
+      if (online) {
+        // Online path: use inbox contract directly
+        const { url } = await uploadFile(blob, 'video');
+        await saveClip({
+          mediaType: 'video',
+          videoUrl: url,
+          createdAt: new Date().toISOString(),
+          type_tag: data.type_tag,
+          feel_tags: data.feel_tags,
+          notes: data.notes,
+          section_id: linkedSection ?? null,
+          timecode_ms: timecodeMs ?? null,
+        });
+      } else {
+        // Offline path: queue inbox-specific pending item
+        const blobBase64 = await new Promise<string>((resolve) => {
+          const reader = new FileReader();
+          reader.onloadend = () => resolve(reader.result as string);
+          reader.readAsDataURL(blob);
+        });
+        
+        const { addPendingClip } = await import('../lib/pendingQueue');
+        const tempId = crypto.randomUUID();
+        
+        addPendingClip({
+          tempId,
+          mediaType: 'video',
+          blobBase64,
+          blobMimeType: blob.type,
+          status: 'pending',
+          retryCount: 0,
+          createdAt: new Date().toISOString(),
+          type_tag: data.type_tag,
+          feel_tags: data.feel_tags,
+          notes: data.notes,
+          section_id: linkedSection ?? null,
+          timecode_ms: timecodeMs ?? null,
+          session_id: null, // Explicitly null for inbox items
+          destination: 'inbox', // Explicit destination discriminator
+        });
+      }
       
       // Close sheet on successful inbox save
       setShowQuickTag(false);

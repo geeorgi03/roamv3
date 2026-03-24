@@ -169,9 +169,23 @@ export function useSessionData(sessionId: string | null) {
     if (!sessionId) return;
 
     try {
+      // Extend clipData to include both legacy and canonical field names
+
+      const enhancedClipData = {
+
+        ...clipData,
+
+        video_storage_path: clipData.videoUrl,
+
+        ...(clipData.audioUrl && { audio_storage_path: clipData.audioUrl }),
+
+        ...(clipData.thumbnailUrl && { thumbnail_storage_path: clipData.thumbnailUrl }),
+
+      };
+
       const res = await apiRequest(`/sessions/${sessionId}/clips`, {
         method: 'POST',
-        body: JSON.stringify(clipData),
+        body: JSON.stringify(enhancedClipData),
       });
 
       if (!res.ok) {

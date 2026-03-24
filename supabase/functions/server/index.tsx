@@ -350,7 +350,10 @@ const enrichClipRow = (row: Record<string, unknown> | null) => {
     feel_tags: row.feel_tags,
     section_id: row.section_id,
     timecode_ms: row.timecode_ms,
-  };
+    videoUrl: row.video_storage_path ?? row.videoUrl,
+    audioUrl: row.audio_storage_path ?? row.audioUrl,
+    thumbnailUrl: row.thumbnail_storage_path ?? row.thumbnailUrl,
+  \};
 };
 
 const CLIP_OPTIONAL_DB_KEYS = [
@@ -365,6 +368,9 @@ const CLIP_OPTIONAL_DB_KEYS = [
   "difficulty",
   "bpm",
   "notes",
+  "video_storage_path",
+  "audio_storage_path",
+  "thumbnail_storage_path",
 ] as const;
 
 app.get("/make-server-837ff822/clips", async (c) => {
@@ -449,11 +455,11 @@ app.post("/make-server-837ff822/sessions/:sessionId/clips", async (c) => {
     // This ensures offline clips synced via syncPendingClips are always persisted into the session
     // that was active at capture time — not the currently open session.
     const clipData = await c.req.json() as Record<string, unknown>;
-    const feel_tags = Array.isArray(clipData.feel_tags) ? clipData.feel_tags : [];
-    const clipId = (clipData.id as string) || crypto.randomUUID();
+    const feel_tags = Array.isArray(normalized.feel_tags) ? normalized.feel_tags : [];
+    const clipId = (normalized.id as string) || crypto.randomUUID();
     const local_id =
-      (clipData.local_id as string) ||
-      (clipData.id as string) ||
+      (normalized.local_id as string) ||
+      (normalized.id as string) ||
       crypto.randomUUID();
 
     const insertPayload: Record<string, unknown> = {
@@ -461,24 +467,35 @@ app.post("/make-server-837ff822/sessions/:sessionId/clips", async (c) => {
       session_id: sessionId,
       user_id: userId,
       local_id,
-      label: (clipData.label as string) || 'Clip',
-      type_tag: clipData.type_tag ?? null,
+      label: (normalized.label as string) || 'Clip',
+      type_tag: normalized.type_tag ?? null,
       feel_tags,
-      section_id: clipData.section_id ?? null,
-      timecode_ms: clipData.timecode_ms ?? null,
+      section_id: normalized.section_id ?? null,
+      timecode_ms: normalized.timecode_ms ?? null,
       recorded_at:
-        (clipData.recorded_at as string) ||
-        (clipData.createdAt as string) ||
+        (normalized.recorded_at as string) ||
+        (normalized.createdAt as string) ||
         new Date().toISOString(),
     };
 
-    for (const key of CLIP_OPTIONAL_DB_KEYS) {
+    // Legacy field mapping for backward compatibility
+    if (normalized.videoUrl && typeof normalized.videoUrl === "string" && normalized.videoUrl.trim() && !upsertPayload.video_storage_path) {
+      upsertPayload.video_storage_path = normalized.videoUrl;
+    }
+    if (normalized.audioUrl && typeof normalized.audioUrl === "string" && normalized.audioUrl.trim() && !upsertPayload.audio_storage_path) {
+      upsertPayload.audio_storage_path = normalized.audioUrl;
+    }
+    if (normalized.thumbnailUrl && typeof normalized.thumbnailUrl === "string" && normalized.thumbnailUrl.trim() && !upsertPayload.thumbnail_storage_path) {
+      upsertPayload.thumbnail_storage_path = normalized.thumbnailUrl;
+    }
+
+    for (const key of CLIP_OPTIONAL_DB_KEYS) \{
       if (clipData[key] !== undefined) insertPayload[key] = clipData[key];
     }
 
     // Temporary backward compatibility: accept legacy singular 'note' from older QuickTag clients.
-    if (clipData.note !== undefined && insertPayload.notes === undefined) {
-      insertPayload.notes = clipData.note;
+    if (normalized.note !== undefined && upsertPayload.notes === undefined) {
+      upsertPayload.notes = normalized.note;
     }
 
     const { data, error } = await supabaseAdmin
@@ -1232,7 +1249,7 @@ app.post("/make-server-837ff822/share/:token/response", async (c) => {
         return c.json({ error: 'No clip available for this session share link' }, 404);
       }
       
-      resolvedClipId = clipData.id;
+      resolvedClipId = normalized.id;
     } else {
       // Malformed/legacy row or token not found
       return c.json({ error: 'Share link not found' }, 404);
@@ -1564,7 +1581,18 @@ app.patch("/make-server-837ff822/inbox/:clipId/assign", async (c) => {
       upload_status: firstString(normalized.upload_status) ?? 'local',
     };
 
-    for (const key of CLIP_OPTIONAL_DB_KEYS) {
+    // Legacy field mapping for backward compatibility
+    if (normalized.videoUrl && typeof normalized.videoUrl === "string" && normalized.videoUrl.trim() && !upsertPayload.video_storage_path) {
+      upsertPayload.video_storage_path = normalized.videoUrl;
+    }
+    if (normalized.audioUrl && typeof normalized.audioUrl === "string" && normalized.audioUrl.trim() && !upsertPayload.audio_storage_path) {
+      upsertPayload.audio_storage_path = normalized.audioUrl;
+    }
+    if (normalized.thumbnailUrl && typeof normalized.thumbnailUrl === "string" && normalized.thumbnailUrl.trim() && !upsertPayload.thumbnail_storage_path) {
+      upsertPayload.thumbnail_storage_path = normalized.thumbnailUrl;
+    }
+
+    for (const key of CLIP_OPTIONAL_DB_KEYS) \{
       if (normalized[key] !== undefined) upsertPayload[key] = normalized[key];
     }
 

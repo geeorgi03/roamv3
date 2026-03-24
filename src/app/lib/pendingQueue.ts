@@ -16,6 +16,7 @@ export type PendingClip = {
   section_id?: string | null;
   timecode_ms?: number | null;
   session_id?: string | null;
+  destination?: "inbox" | "session";
 };
 
 const STORAGE_KEY = "roam-pending-clips";

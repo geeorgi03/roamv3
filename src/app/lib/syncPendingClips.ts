@@ -15,6 +15,7 @@ type SaveClipFn = (clipData: {
   section_id?: string | null;
   timecode_ms?: number | null;
   session_id?: string | null;
+  destination?: "inbox" | "session";
 }) => Promise<{ id?: string; [key: string]: unknown } | null | undefined>;
 
 function dataUrlToBlob(dataUrl: string): { blob: Blob; mimeType: string } {
@@ -48,6 +49,7 @@ export async function syncPendingClips(saveClip: SaveClipFn, uploadFile: UploadF
         section_id: pending.section_id,
         timecode_ms: pending.timecode_ms,
         session_id: pending.session_id,
+        destination: pending.destination,
       };
 
       const result = await saveClip(clipData);
