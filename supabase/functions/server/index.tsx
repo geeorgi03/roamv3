@@ -1500,7 +1500,7 @@ app.patch("/make-server-837ff822/inbox/:clipId/assign", async (c) => {
     const clipId = c.req.param('clipId');
     const body = (await c.req.json()) as AnyRecord;
     const sessionId = firstString(body.sessionId, body.session_id);
-    const section = firstString(body.section, body.sectionLabel, body.section_label);
+    const section = firstString(body.section_id, body.section, body.sectionLabel, body.section_label);
 
     if (!sessionId) return c.json({ error: 'sessionId is required' }, 400);
 
@@ -1553,19 +1553,6 @@ app.patch("/make-server-837ff822/inbox/:clipId/assign", async (c) => {
         normalized.createdAt,
       ) ?? new Date().toISOString();
 
-    const { data: existingClip, error: existingErr } = await supabaseAdmin
-      .from('clips')
-      .select('id, user_id')
-      .eq('id', clipId)
-      .maybeSingle();
-
-    if (existingErr) {
-      console.log(`Error checking existing clip for assign: ${existingErr.message}`);
-      return c.json({ error: 'Failed to assign clip' }, 500);
-    }
-    if (existingClip && existingClip.user_id !== userId) {
-      return c.json({ error: 'Clip id already in use' }, 409);
-    }
 
     const upsertPayload: Record<string, unknown> = {
       id: clipId,
@@ -1592,7 +1579,7 @@ app.patch("/make-server-837ff822/inbox/:clipId/assign", async (c) => {
       upsertPayload.thumbnail_storage_path = normalized.thumbnailUrl;
     }
 
-    for (const key of CLIP_OPTIONAL_DB_KEYS) \{
+    for (const key of CLIP_OPTIONAL_DB_KEYS) {
       if (normalized[key] !== undefined) upsertPayload[key] = normalized[key];
     }
 
