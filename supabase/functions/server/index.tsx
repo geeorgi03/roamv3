@@ -353,7 +353,7 @@ const enrichClipRow = (row: Record<string, unknown> | null) => {
     videoUrl: row.video_storage_path ?? row.videoUrl,
     audioUrl: row.audio_storage_path ?? row.audioUrl,
     thumbnailUrl: row.thumbnail_storage_path ?? row.thumbnailUrl,
-  \};
+  };
 };
 
 const CLIP_OPTIONAL_DB_KEYS = [
@@ -455,11 +455,11 @@ app.post("/make-server-837ff822/sessions/:sessionId/clips", async (c) => {
     // This ensures offline clips synced via syncPendingClips are always persisted into the session
     // that was active at capture time — not the currently open session.
     const clipData = await c.req.json() as Record<string, unknown>;
-    const feel_tags = Array.isArray(normalized.feel_tags) ? normalized.feel_tags : [];
-    const clipId = (normalized.id as string) || crypto.randomUUID();
+    const feel_tags = Array.isArray(clipData.feel_tags) ? clipData.feel_tags : [];
+    const clipId = (clipData.id as string) || crypto.randomUUID();
     const local_id =
-      (normalized.local_id as string) ||
-      (normalized.id as string) ||
+      (clipData.local_id as string) ||
+      (clipData.id as string) ||
       crypto.randomUUID();
 
     const insertPayload: Record<string, unknown> = {
@@ -467,35 +467,35 @@ app.post("/make-server-837ff822/sessions/:sessionId/clips", async (c) => {
       session_id: sessionId,
       user_id: userId,
       local_id,
-      label: (normalized.label as string) || 'Clip',
-      type_tag: normalized.type_tag ?? null,
+      label: (clipData.label as string) || 'Clip',
+      type_tag: clipData.type_tag ?? null,
       feel_tags,
-      section_id: normalized.section_id ?? null,
-      timecode_ms: normalized.timecode_ms ?? null,
+      section_id: clipData.section_id ?? null,
+      timecode_ms: clipData.timecode_ms ?? null,
       recorded_at:
-        (normalized.recorded_at as string) ||
-        (normalized.createdAt as string) ||
+        (clipData.recorded_at as string) ||
+        (clipData.createdAt as string) ||
         new Date().toISOString(),
     };
 
     // Legacy field mapping for backward compatibility
-    if (normalized.videoUrl && typeof normalized.videoUrl === "string" && normalized.videoUrl.trim() && !upsertPayload.video_storage_path) {
-      upsertPayload.video_storage_path = normalized.videoUrl;
+    if (clipData.videoUrl && typeof clipData.videoUrl === "string" && clipData.videoUrl.trim() && !insertPayload.video_storage_path) {
+      insertPayload.video_storage_path = clipData.videoUrl;
     }
-    if (normalized.audioUrl && typeof normalized.audioUrl === "string" && normalized.audioUrl.trim() && !upsertPayload.audio_storage_path) {
-      upsertPayload.audio_storage_path = normalized.audioUrl;
+    if (clipData.audioUrl && typeof clipData.audioUrl === "string" && clipData.audioUrl.trim() && !insertPayload.audio_storage_path) {
+      insertPayload.audio_storage_path = clipData.audioUrl;
     }
-    if (normalized.thumbnailUrl && typeof normalized.thumbnailUrl === "string" && normalized.thumbnailUrl.trim() && !upsertPayload.thumbnail_storage_path) {
-      upsertPayload.thumbnail_storage_path = normalized.thumbnailUrl;
+    if (clipData.thumbnailUrl && typeof clipData.thumbnailUrl === "string" && clipData.thumbnailUrl.trim() && !insertPayload.thumbnail_storage_path) {
+      insertPayload.thumbnail_storage_path = clipData.thumbnailUrl;
     }
 
-    for (const key of CLIP_OPTIONAL_DB_KEYS) \{
+    for (const key of CLIP_OPTIONAL_DB_KEYS) {
       if (clipData[key] !== undefined) insertPayload[key] = clipData[key];
     }
 
     // Temporary backward compatibility: accept legacy singular 'note' from older QuickTag clients.
-    if (normalized.note !== undefined && upsertPayload.notes === undefined) {
-      upsertPayload.notes = normalized.note;
+    if (clipData.note !== undefined && insertPayload.notes === undefined) {
+      insertPayload.notes = clipData.note;
     }
 
     const { data, error } = await supabaseAdmin
@@ -1249,7 +1249,7 @@ app.post("/make-server-837ff822/share/:token/response", async (c) => {
         return c.json({ error: 'No clip available for this session share link' }, 404);
       }
       
-      resolvedClipId = normalized.id;
+      resolvedClipId = clipData.id;
     } else {
       // Malformed/legacy row or token not found
       return c.json({ error: 'Share link not found' }, 404);
@@ -1470,6 +1470,11 @@ app.post("/make-server-837ff822/inbox", async (c) => {
       duration_ms: firstNumber(clip.duration_ms),
       recorded_at: firstString(clip.recorded_at) ?? new Date().toISOString(),
       upload_status: firstString(clip.upload_status) ?? 'local',
+      type_tag: firstString(clip.type_tag) ?? null,
+      feel_tags: Array.isArray(clip.feel_tags) ? clip.feel_tags : [],
+      notes: firstString(clip.notes) ?? null,
+      section_id: firstString(clip.section_id) ?? null,
+      timecode_ms: firstNumber(clip.timecode_ms) ?? null,
     };
 
     const { data: row, error } = await supabaseAdmin

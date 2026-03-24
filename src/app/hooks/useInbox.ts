@@ -16,6 +16,11 @@ export interface InboxClip {
   createdAt: string;
   pending?: boolean;
   pendingStatus?: "pending" | "syncing" | "failed";
+  type_tag?: string | null;
+  feel_tags?: string[];
+  notes?: string;
+  section_id?: string | null;
+  timecode_ms?: number | null;
 }
 
 export function useInbox() {
@@ -97,6 +102,21 @@ export function useInbox() {
     if (clipData.thumbnailUrl) {
       payload.thumbnail_storage_path = clipData.thumbnailUrl;
     }
+    if (clipData.type_tag !== undefined) {
+      payload.type_tag = clipData.type_tag;
+    }
+    if (clipData.feel_tags !== undefined) {
+      payload.feel_tags = clipData.feel_tags;
+    }
+    if (clipData.notes !== undefined && clipData.notes !== '') {
+      payload.notes = clipData.notes;
+    }
+    if (clipData.section_id !== undefined) {
+      payload.section_id = clipData.section_id;
+    }
+    if (clipData.timecode_ms !== undefined) {
+      payload.timecode_ms = clipData.timecode_ms;
+    }
     const res = await apiRequest("/inbox", {
       method: "POST",
       body: JSON.stringify(payload),
@@ -117,6 +137,11 @@ export function useInbox() {
       duration: clip.duration_ms ? clip.duration_ms / 1000 : undefined,
       thumbnailUrl: clip.thumbnail_storage_path,
       createdAt: clip.recorded_at || clip.created_at,
+      type_tag: clip.type_tag,
+      feel_tags: clip.feel_tags,
+      notes: clip.notes,
+      section_id: clip.section_id,
+      timecode_ms: clip.timecode_ms,
     };
     setServerClips((prev) => [mappedClip, ...prev]);
     return mappedClip;
